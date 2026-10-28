@@ -1,0 +1,2 @@
+-- TODO: Optional synthetic fixtures after schema implementation.
+-- Never include real customer information or reusable/plaintext passwords.

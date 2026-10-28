@@ -1,0 +1,5 @@
+-- TODO: Implement the reference MySQL 8.0.16+ InnoDB schema.
+-- Tables: customers, accounts, deposit_details, loan_details,
+-- transactions, login_audit, transaction_audit.
+-- Include PK/FK/UQ/CHECK constraints and ownership/history indexes.
+-- Placeholder only: no executable statements.
