@@ -8,7 +8,7 @@
 
 This is a build guide, not a claim that these features are implemented. The current application is a scaffold. Implement one numbered step at a time and pass its completion checks before continuing.
 
-The application is a standalone, menu-driven terminal program. Do not add Spring, a web interface, real payment processing, interest calculations, loan disbursement, or administrator menus. MySQL is the selected database; the document's PostgreSQL alternative is not part of this project.
+The application is a menu-driven terminal program. MySQL is the selected database.
 
 **Start with step 1: verify Java and Maven and complete the Maven test setup. Then complete steps 2–4. The first banking class to implement is `Money.java` in step 5. Do not start by implementing all the menus.**
 
