@@ -7,7 +7,8 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
- * Opens MySQL connections without running SQL or managing transactions.
+ * Opens MySQL connections. Ordinary connections run no setup SQL; the explicit
+ * login audit path establishes a UTC session without changing business callers.
  * The caller owns each returned connection and must close it.
  */
 public final class ConnectionFactory {
@@ -73,6 +74,29 @@ public final class ConnectionFactory {
             throw new SQLException("Connector did not return a connection.", "08001");
         }
         return connection;
+    }
+
+    /**
+     * Opens a fresh, caller-owned login audit writer connection. A UTC Calendar
+     * alone cannot override MySQL TIMESTAMP's interpretation of session time.
+     * Use a numeric offset so installed MySQL time-zone tables are not required.
+     * This must run before the audit transaction/insert, on every acquisition.
+     */
+    public Connection getLoginAuditConnection() throws SQLException {
+        Connection connection = getConnection();
+        try {
+            try (var statement = connection.createStatement()) {
+                statement.execute("SET SESSION time_zone = '+00:00'");
+            }
+            return connection;
+        } catch (SQLException | RuntimeException | Error failure) {
+            try {
+                connection.close();
+            } catch (SQLException closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
     }
 
     private static void requireValue(String value, String setting) {
