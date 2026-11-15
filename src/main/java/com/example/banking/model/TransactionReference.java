@@ -51,4 +51,3 @@ public final class TransactionReference {
         return value;
     }
 }
-

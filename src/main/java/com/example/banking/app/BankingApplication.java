@@ -5,6 +5,9 @@ import com.example.banking.util.AppConfig;
 import com.example.banking.util.ConnectionFactory;
 import com.example.banking.dao.jdbc.JdbcCustomerDAO;
 import com.example.banking.dao.jdbc.JdbcLoginAuditDAO;
+import com.example.banking.dao.jdbc.JdbcSecurityAuditDAO;
+import com.example.banking.dao.jdbc.JdbcTransactionAuditDAO;
+import com.example.banking.model.Money;
 import com.example.banking.security.BcryptPasswordHasher;
 import com.example.banking.security.LoginAuditDelivery;
 import com.example.banking.security.SessionManager;
@@ -39,7 +42,10 @@ public final class BankingApplication {
                     new LoginAuditDelivery(new JdbcLoginAuditDAO(connections)), clock,
                     config.getPositiveInt("auth.max.failed.logins"),
                     Duration.ofMinutes(config.getPositiveInt("auth.lock.minutes")),
-                    config.getPositiveInt("db.query.timeout.seconds"));
+                    config.getPositiveInt("db.query.timeout.seconds"),
+                    new JdbcSecurityAuditDAO(config.getPositiveInt("db.query.timeout.seconds")),
+                    new Money(config.getPositiveDecimal("tx.max.amount")),
+                    new JdbcTransactionAuditDAO(connections, config.getPositiveInt("db.query.timeout.seconds")));
             LOGGER.info("Banking CLI started.");
             new MainMenu(auth, input).run();
         } catch (Exception failure) {

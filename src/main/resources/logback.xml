@@ -1,22 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-
-    <!-- Diagnostics use stderr; normal CLI output uses stdout.
-         Never log credentials, hashes, or full account numbers. -->
-
-    <appender name="CONSOLE"
-              class="ch.qos.logback.core.ConsoleAppender">
-
+    <!-- Diagnostics go to stderr; CLI menus and prompts use stdout.
+         Never pass passwords, hashes, credentials, or full account numbers.
+         Future operations may attach a safe generated reference using MDC. -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <target>System.err</target>
-
         <encoder>
             <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36} [ref=%X{reference:-none}] - %msg%n</pattern>
         </encoder>
-
     </appender>
-
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
     </root>
-
 </configuration>

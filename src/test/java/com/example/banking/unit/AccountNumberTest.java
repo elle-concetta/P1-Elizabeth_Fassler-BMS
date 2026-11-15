@@ -93,4 +93,3 @@ class AccountNumberTest {
         assertEquals(VALID, number.value());
     }
 }
-

@@ -31,12 +31,19 @@ public final class JdbcTransactionAuditDAO implements TransactionAuditDAO {
             """;
 
     private final ConnectionFactory connections;
+    private final int timeout;
 
     public JdbcTransactionAuditDAO(ConnectionFactory connections) {
+        this(connections, 10);
+    }
+
+    public JdbcTransactionAuditDAO(ConnectionFactory connections, int timeout) {
         if (connections == null) {
             throw new IllegalArgumentException("Connection factory is required.");
         }
         this.connections = connections;
+        if (timeout <= 0) throw new IllegalArgumentException("Query timeout must be positive.");
+        this.timeout = timeout;
     }
 
     @Override
@@ -59,10 +66,12 @@ public final class JdbcTransactionAuditDAO implements TransactionAuditDAO {
             connection.setAutoCommit(false);
             try {
                 try (PreparedStatement session = connection.prepareStatement(UTC_SESSION)) {
+                    session.setQueryTimeout(timeout);
                     session.execute();
                 }
                 // A statement-close failure must happen before the commit.
                 try (PreparedStatement statement = connection.prepareStatement(INSERT)) {
+                    statement.setQueryTimeout(timeout);
                     statement.setLong(1, audit.customerId());
                     if (audit.referenceNumber().isPresent()) {
                         statement.setString(2, audit.referenceNumber().orElseThrow().value());

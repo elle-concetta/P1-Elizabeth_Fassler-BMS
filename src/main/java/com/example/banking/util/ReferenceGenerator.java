@@ -57,4 +57,3 @@ public final class ReferenceGenerator {
                 + HexFormat.of().withUpperCase().formatHex(entropy);
     }
 }
-

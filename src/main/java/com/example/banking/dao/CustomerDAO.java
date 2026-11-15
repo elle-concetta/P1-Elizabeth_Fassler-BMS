@@ -3,6 +3,7 @@ package com.example.banking.dao;
 import com.example.banking.model.Customer;
 import com.example.banking.model.PasswordHash;
 import com.example.banking.model.Registration;
+import com.example.banking.model.ContactDetails;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -25,4 +26,7 @@ public interface CustomerDAO {
     Optional<AuthenticationRow> lockByUsername(Connection connection, String username) throws SQLException;
     void updateLoginState(Connection connection, long id, int failures, Instant lockedUntil)
             throws SQLException;
+    Optional<Customer> findProfile(Connection connection, long id, boolean forUpdate) throws SQLException;
+    void updateContact(Connection connection, long id, ContactDetails details) throws SQLException;
+    void updatePasswordHash(Connection connection, long id, PasswordHash hash) throws SQLException;
 }

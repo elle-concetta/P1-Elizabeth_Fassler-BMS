@@ -5,6 +5,7 @@ import com.example.banking.model.Customer;
 import com.example.banking.model.CustomerStatus;
 import com.example.banking.model.PasswordHash;
 import com.example.banking.model.Registration;
+import com.example.banking.model.ContactDetails;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -106,6 +107,50 @@ public final class JdbcCustomerDAO implements CustomerDAO {
         }
     }
 
+    @Override
+    public Optional<Customer> findProfile(Connection connection, long id, boolean forUpdate)
+            throws SQLException {
+        if (id <= 0) throw new IllegalArgumentException("Customer identity must be positive.");
+        String sql = """
+                SELECT customer_id, customer_code, first_name, middle_initial, last_name,
+                    date_of_birth, address, email, phone, username, status
+                FROM customers WHERE customer_id = ?
+                """ + (forUpdate ? " FOR UPDATE" : "");
+        try (var query = connection.prepareStatement(sql)) {
+            query.setQueryTimeout(timeout);
+            query.setLong(1, id);
+            try (var rows = query.executeQuery()) {
+                return rows.next() ? Optional.of(profile(rows)) : Optional.empty();
+            }
+        }
+    }
+
+    @Override
+    public void updateContact(Connection connection, long id, ContactDetails details) throws SQLException {
+        if (id <= 0 || details == null) throw new IllegalArgumentException("Customer and contact details are required.");
+        try (var query = connection.prepareStatement(
+                "UPDATE customers SET email = ?, phone = ?, address = ? WHERE customer_id = ?")) {
+            query.setQueryTimeout(timeout);
+            query.setString(1, details.email());
+            query.setString(2, details.phone());
+            query.setString(3, emptyToNull(details.address()));
+            query.setLong(4, id);
+            if (query.executeUpdate() != 1) throw new SQLException("Contact update was not confirmed.");
+        }
+    }
+
+    @Override
+    public void updatePasswordHash(Connection connection, long id, PasswordHash hash) throws SQLException {
+        if (id <= 0 || hash == null) throw new IllegalArgumentException("Customer and hash are required.");
+        try (var query = connection.prepareStatement(
+                "UPDATE customers SET password_hash = ? WHERE customer_id = ?")) {
+            query.setQueryTimeout(timeout);
+            query.setString(1, hash.value());
+            query.setLong(2, id);
+            if (query.executeUpdate() != 1) throw new SQLException("Password replacement not confirmed.");
+        }
+    }
+
     private static Customer profile(ResultSet rows) throws SQLException {
         return new Customer(rows.getLong("customer_id"), rows.getString("customer_code"),
                 rows.getString("first_name"), rows.getString("middle_initial"),
@@ -118,4 +163,3 @@ public final class JdbcCustomerDAO implements CustomerDAO {
         return text == null || text.isEmpty() ? null : text;
     }
 }
-

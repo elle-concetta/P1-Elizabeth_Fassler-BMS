@@ -141,4 +141,3 @@ class EnumContractTest {
                 .map(match -> match.group(1)).collect(Collectors.toSet());
     }
 }
-

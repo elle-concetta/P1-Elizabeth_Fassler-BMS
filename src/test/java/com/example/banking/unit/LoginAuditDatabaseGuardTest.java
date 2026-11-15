@@ -24,6 +24,37 @@ class LoginAuditDatabaseGuardTest {
     }
 
     @Test
+    void acceptsRawEscapedTestDatabaseGrantAndExistingSpellings() {
+        for (String grant : new String[]{
+                "GRANT USAGE ON *.* TO `banking_test_runner`@`localhost`",
+                "GRANT SELECT, INSERT, CREATE, DROP, REFERENCES ON `banking\\_test`.* TO `banking_test_runner`@`localhost`",
+                "GRANT SELECT ON `banking_test`.* TO `banking_test_runner`@`localhost`"}) {
+            assertDoesNotThrow(() -> LoginAuditTestDatabase.validateGrant(grant));
+        }
+    }
+
+    @Test
+    void rejectsOtherSchemasGlobalRolesObjectGrantsAndGrantOption() {
+        for (String grant : new String[]{
+                "GRANT SELECT ON `banking_db`.* TO `banking_test_runner`@`localhost`",
+                "GRANT SELECT ON `bankingXtest`.* TO `banking_test_runner`@`localhost`",
+                "GRANT SELECT ON `banking\\_test_extra`.* TO `banking_test_runner`@`localhost`",
+                "GRANT SELECT ON *.* TO `banking_test_runner`@`localhost`",
+                "GRANT SELECT ON `banking_test`.`customers` TO `banking_test_runner`@`localhost`",
+                "GRANT SELECT (`customer_id`) ON `banking_test`.`customers` TO `banking_test_runner`@`localhost`",
+                "GRANT EXECUTE ON PROCEDURE `banking_test`.`outside_access` TO `banking_test_runner`@`localhost`",
+                "GRANT `reader`@`localhost` TO `banking_test_runner`@`localhost`",
+                "GRANT SELECT ON `banking\\_test`.* TO `banking_test_runner`@`localhost` WITH GRANT OPTION",
+                "GRANT SELECT ON `banking\\\\_test`.* TO `banking_test_runner`@`localhost`",
+                ""}) {
+            assertThrows(IllegalStateException.class,
+                    () -> LoginAuditTestDatabase.validateGrant(grant), grant);
+        }
+        assertThrows(IllegalStateException.class,
+                () -> LoginAuditTestDatabase.validateGrant(null));
+    }
+
+    @Test
     void eachRequiredSettingFailsClosedWhenMissingOrBlank() {
         for (String key : valid().keySet()) {
             var missing = valid();
@@ -70,5 +101,3 @@ class LoginAuditDatabaseGuardTest {
                 () -> LoginAuditTestDatabase.validateSettings(wrongApproval));
     }
 }
-
-

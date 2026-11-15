@@ -47,4 +47,3 @@ public final class SessionManager {
         return Optional.ofNullable(ended);
     }
 }
-

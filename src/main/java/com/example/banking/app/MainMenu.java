@@ -4,6 +4,7 @@ import com.example.banking.exception.BankingException;
 import com.example.banking.exception.ValidationException;
 import com.example.banking.model.Registration;
 import com.example.banking.service.AuthService;
+import com.example.banking.validation.CustomerValidator;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
@@ -19,9 +20,26 @@ public final class MainMenu {
     }
 
     public void run() {
-        input.println("Secure Banking CLI — registration and login");
+        input.println(CliPresentation.welcome());
         while (true) {
             try {
+                if (auth.pendingDeposit().isPresent()) {
+                    var pending = auth.pendingDeposit().orElseThrow();
+                    input.println("DEPOSIT RECONCILIATION REQUIRED. Authentication is blocked.");
+                    input.println("Reference: " + pending.evidence().referenceNumber().orElseThrow().value());
+                    input.println("Keep this process open and ask an administrator to reconcile. "
+                            + "Evidence is only in memory; exiting loses it. Do not restart or repeat the deposit.");
+                    String exit = input.text("Type EXIT to acknowledge evidence loss and close: ", 10);
+                    if (exit == null || exit.equals("EXIT")) return;
+                    continue;
+                }
+                if (auth.pendingPasswordChange().isPresent()) {
+                    input.println(auth.pendingPasswordChange().orElseThrow().getMessage());
+                    input.println("Authentication is blocked pending manual reconciliation. Record the reference.");
+                    String exit = input.text("Type EXIT to acknowledge and close: ", 10);
+                    if (exit == null || exit.equals("EXIT")) return;
+                    continue;
+                }
                 if (auth.pendingAudit().isPresent()) {
                     input.println("AUDIT STORAGE NOT CONFIRMED. Authentication is blocked.");
                     input.println("Evidence remains only in memory. Exiting loses unsaved evidence; "
@@ -30,7 +48,7 @@ public final class MainMenu {
                     if (exit == null || exit.equals("EXIT")) return;
                     continue;
                 }
-                input.println("\n1. Register\n2. Log in\n3. Exit");
+                input.println("\n  GET STARTED\n  1. Register\n  2. Log in\n  3. Exit");
                 String choice = input.text("Choice: ", 10);
                 if (choice == null || choice.equals("3")) return;
                 switch (choice) {
@@ -44,7 +62,7 @@ public final class MainMenu {
                 input.println(failure.getMessage());
                 // A form/input error inside the authenticated shell must not
                 // strand a live session while returning to the welcome menu.
-                if (auth.pendingAudit().isEmpty()) {
+                if (auth.pendingAudit().isEmpty() && auth.pendingDeposit().isEmpty()) {
                     try {
                         auth.logout();
                     } catch (BankingException auditFailure) {
@@ -71,7 +89,8 @@ public final class MainMenu {
         }
         String address = input.field("Address (optional)", 510);
         String email = input.field("Email", 254);
-        String phone = input.field("Phone (optional)", 30);
+        String phone = input.field("Phone (required, 10 digits)", 30);
+        CustomerValidator.validatePhone(phone);
         String username = input.field("Username", 80);
         char[] raw = input.password("Password (hidden; minimum 10 characters, all four classes): ");
         auth.register(new Registration(first, middle, last, birth, address, email, phone, username), raw);

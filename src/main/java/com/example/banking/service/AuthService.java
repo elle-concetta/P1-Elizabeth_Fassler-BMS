@@ -1,10 +1,18 @@
 package com.example.banking.service;
 
 import com.example.banking.dao.CustomerDAO;
+import com.example.banking.dao.SecurityAuditDAO;
+import com.example.banking.dao.TransactionAuditDAO;
+import com.example.banking.dao.jdbc.JdbcSecurityAuditDAO;
+import com.example.banking.dao.jdbc.JdbcAccountDAO;
+import com.example.banking.dao.jdbc.JdbcTransactionDAO;
+import com.example.banking.dao.jdbc.JdbcTransactionAuditDAO;
 import com.example.banking.exception.*;
 import com.example.banking.model.*;
 import com.example.banking.security.*;
 import com.example.banking.util.ConnectionFactory;
+import com.example.banking.util.ReferenceGenerator;
+import com.example.banking.util.AppConfig;
 import com.example.banking.validation.CustomerValidator;
 
 import java.sql.Connection;
@@ -33,6 +41,11 @@ public final class AuthService {
     private final Duration lockDuration;
     private final int queryTimeout;
     private final String dummyHash;
+    private final CustomerService profiles;
+    private final PasswordChangeService passwordChanges;
+    private final AccountService accountService;
+    private final TransactionService transactions;
+    private PasswordChangeUnconfirmedException pendingPasswordChange;
     private Customer currentCustomer;
     private LoginAuditDelivery.Result pendingAudit;
 
@@ -40,6 +53,27 @@ public final class AuthService {
                        PasswordHasher passwords, CustomerValidator validator,
                        SessionManager sessions, LoginAuditDelivery delivery,
                        Clock clock, int maxFailures, Duration lockDuration, int queryTimeout) {
+        this(connections, customers, passwords, validator, sessions, delivery, clock,
+                maxFailures, lockDuration, queryTimeout, new JdbcSecurityAuditDAO(queryTimeout));
+    }
+
+    public AuthService(ConnectionFactory connections, CustomerDAO customers,
+                       PasswordHasher passwords, CustomerValidator validator,
+                       SessionManager sessions, LoginAuditDelivery delivery,
+                       Clock clock, int maxFailures, Duration lockDuration, int queryTimeout,
+                       SecurityAuditDAO securityAudit) {
+        this(connections, customers, passwords, validator, sessions, delivery, clock, maxFailures,
+                lockDuration, queryTimeout, securityAudit,
+                new Money(AppConfig.load().getPositiveDecimal("tx.max.amount")),
+                new JdbcTransactionAuditDAO(connections, queryTimeout));
+    }
+
+    public AuthService(ConnectionFactory connections, CustomerDAO customers,
+                       PasswordHasher passwords, CustomerValidator validator,
+                       SessionManager sessions, LoginAuditDelivery delivery,
+                       Clock clock, int maxFailures, Duration lockDuration, int queryTimeout,
+                       SecurityAuditDAO securityAudit, Money maximumDeposit,
+                       TransactionAuditDAO financialAudit) {
         this.connections = Objects.requireNonNull(connections);
         this.customers = Objects.requireNonNull(customers);
         this.passwords = Objects.requireNonNull(passwords);
@@ -54,12 +88,23 @@ public final class AuthService {
         this.maxFailures = maxFailures;
         this.lockDuration = lockDuration;
         this.queryTimeout = queryTimeout;
+        this.profiles = new CustomerService(connections, customers, this::currentCustomer, queryTimeout);
+        this.accountService = new AccountService(connections, new JdbcAccountDAO(queryTimeout),
+                customers, this::currentCustomer, new ReferenceGenerator()::generateAccountNumber,
+                clock, queryTimeout);
+        var referenceGenerator = new ReferenceGenerator();
+        this.transactions = new TransactionService(connections, new JdbcAccountDAO(queryTimeout),
+                customers, new JdbcTransactionDAO(queryTimeout), financialAudit, this::currentCustomer,
+                () -> new TransactionReference(referenceGenerator.generateTransactionReference()),
+                clock, maximumDeposit, queryTimeout);
         char[] dummy = "Not-A-Real-Account-1!".toCharArray();
         try {
             dummyHash = passwords.hash(dummy);
         } finally {
             Arrays.fill(dummy, '\0');
         }
+        this.passwordChanges = new PasswordChangeService(connections, customers, securityAudit,
+                passwords, this::currentCustomer, clock, maxFailures, lockDuration, queryTimeout, dummyHash);
     }
 
     public Customer register(Registration input, char[] raw) {
@@ -175,6 +220,58 @@ public final class AuthService {
         }
     }
 
+    public void changePassword(char[] current, char[] replacement, char[] confirmation) {
+        try {
+            var result = passwordChanges.change(current, replacement, confirmation);
+            if (result == PasswordChangeService.Result.LOCKED) {
+                invalidateSession();
+                throw new AuthenticationException();
+            }
+            if (result == PasswordChangeService.Result.REJECTED)
+                throw new ValidationException("Current password could not be verified. Password was not changed.");
+        } catch (PasswordChangeUnconfirmedException unconfirmed) {
+            pendingPasswordChange = unconfirmed;
+            invalidateSession();
+            throw unconfirmed;
+        } catch (AuthenticationException denied) {
+            invalidateSession();
+            throw denied;
+        }
+    }
+
+    public Optional<PasswordChangeUnconfirmedException> pendingPasswordChange() {
+        return Optional.ofNullable(pendingPasswordChange);
+    }
+
+    private void invalidateSession() {
+        sessions.end();
+        currentCustomer = null;
+    }
+
+    public Customer currentProfile() {
+        Customer profile = profiles.profile();
+        currentCustomer = profile;
+        return profile;
+    }
+
+    public Customer updateContact(ContactDetails details) {
+        Customer profile = profiles.updateContact(details);
+        currentCustomer = profile;
+        return profile;
+    }
+
+    public Account openAccount(AccountType type) { return accountService.open(type); }
+
+    public java.util.List<Account> accounts() { return accountService.list(); }
+
+    public Account accountDetails(long accountId) { return accountService.details(accountId); }
+
+    public BankTransaction deposit(long accountId, String amount) {
+        return transactions.deposit(accountId, amount);
+    }
+
+    public Optional<TransactionService.PendingDeposit> pendingDeposit() { return transactions.pending(); }
+
     public Customer currentCustomer() {
         ensureAvailable();
         try {
@@ -221,6 +318,8 @@ public final class AuthService {
     }
 
     private void ensureAvailable() {
+        if (transactions.pending().isPresent()) throw transactions.pendingFailure();
+        if (pendingPasswordChange != null) throw pendingPasswordChange;
         if (pendingAudit != null) throw new AuditUnavailableException();
     }
 
@@ -267,4 +366,3 @@ public final class AuthService {
 
     private record Attempt(Customer customer, LoginOutcome outcome, String reason) {}
 }
-

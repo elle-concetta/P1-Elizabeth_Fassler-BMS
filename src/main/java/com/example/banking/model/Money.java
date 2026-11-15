@@ -5,8 +5,7 @@ import java.math.RoundingMode;
 
 /**
  * Immutable decimal value compatible with DECIMAL(19,2).
- * Account and transaction rules separately validate balances
- * and operation amounts.
+ * Account and transaction rules separately validate balances and operation amounts.
  */
 public final class Money implements Comparable<Money> {
 
@@ -19,17 +18,13 @@ public final class Money implements Comparable<Money> {
 
     public Money(BigDecimal amount) {
         if (amount == null) {
-            throw new IllegalArgumentException(
-                    "Money amount must not be null."
-            );
+            throw new IllegalArgumentException("Money amount must not be null.");
         }
-
         if (amount.scale() > 2) {
             throw new IllegalArgumentException(
                     "Money amount must have no more than two decimal places."
             );
         }
-
         if (amount.abs().compareTo(MAX_STORAGE_VALUE) > 0) {
             throw new IllegalArgumentException(
                     "Money amount exceeds the DECIMAL(19,2) storage range."
@@ -46,7 +41,6 @@ public final class Money implements Comparable<Money> {
                     "Enter a decimal amount with no more than two decimal places."
             );
         }
-
         return new Money(new BigDecimal(input.trim()));
     }
 
@@ -79,11 +73,9 @@ public final class Money implements Comparable<Money> {
         if (this == other) {
             return true;
         }
-
         if (!(other instanceof Money money)) {
             return false;
         }
-
         return amount.equals(money.amount);
     }
 
@@ -99,9 +91,7 @@ public final class Money implements Comparable<Money> {
 
     private static void requireOther(Money other) {
         if (other == null) {
-            throw new IllegalArgumentException(
-                    "Other money value must not be null."
-            );
+            throw new IllegalArgumentException("Other money value must not be null.");
         }
     }
 }

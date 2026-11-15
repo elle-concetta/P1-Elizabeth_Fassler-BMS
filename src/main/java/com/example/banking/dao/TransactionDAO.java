@@ -1,4 +1,10 @@
 package com.example.banking.dao;
 
-/** TODO: Append ledger row, find by reference, owned history pagination. */
-public interface TransactionDAO {}
+import com.example.banking.model.BankTransaction;
+import java.sql.Connection;
+import java.sql.SQLException;
+
+/** Ledger insertion shares the caller's money transaction; never commits independently. */
+public interface TransactionDAO {
+    void insertDeposit(Connection connection, BankTransaction transaction) throws SQLException;
+}

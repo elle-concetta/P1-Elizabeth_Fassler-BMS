@@ -45,7 +45,7 @@ class JdbcLoginAuditDAOTest {
         factory = mock(ConnectionFactory.class);
         connection = mock(Connection.class);
         statement = mock(PreparedStatement.class);
-        when(factory.getConnection()).thenReturn(connection);
+        when(factory.getLoginAuditConnection()).thenReturn(connection);
         when(connection.prepareStatement(SQL)).thenReturn(statement);
         when(statement.executeUpdate()).thenReturn(1);
         dao = new JdbcLoginAuditDAO(factory);
@@ -56,7 +56,7 @@ class JdbcLoginAuditDAOTest {
         LoginAudit audit = audit(11L, LoginOutcome.FAILURE, "INVALID_CREDENTIALS");
         dao.append(audit);
         var order = inOrder(factory, connection, statement);
-        order.verify(factory).getConnection();
+        order.verify(factory).getLoginAuditConnection();
         order.verify(connection).setAutoCommit(false);
         order.verify(connection).prepareStatement(SQL);
         order.verify(statement).setLong(1, 11L);
@@ -89,7 +89,7 @@ class JdbcLoginAuditDAOTest {
             dao.append(audit(null, outcome, null));
             verify(statement).setString(3, outcome.name());
         }
-        verify(factory, times(5)).getConnection();
+        verify(factory, times(5)).getLoginAuditConnection();
         verify(connection, times(5)).commit();
     }
 
@@ -97,7 +97,7 @@ class JdbcLoginAuditDAOTest {
     void opensAnIndependentConnectionForEachAppend() throws Exception {
         Connection second = mock(Connection.class);
         PreparedStatement otherStatement = mock(PreparedStatement.class);
-        when(factory.getConnection()).thenReturn(connection, second);
+        when(factory.getLoginAuditConnection()).thenReturn(connection, second);
         when(second.prepareStatement(SQL)).thenReturn(otherStatement);
         when(otherStatement.executeUpdate()).thenReturn(1);
         dao.append(audit(null, LoginOutcome.FAILURE, null));
@@ -176,7 +176,7 @@ class JdbcLoginAuditDAOTest {
 
     @Test
     void acquisitionFailureDoesNotTouchResources() throws Exception {
-        when(factory.getConnection()).thenThrow(secretFailure());
+        when(factory.getLoginAuditConnection()).thenThrow(secretFailure());
         assertSafeFailure();
         verifyNoInteractions(connection, statement);
     }
@@ -244,7 +244,7 @@ class JdbcLoginAuditDAOTest {
         order.verify(connection).rollback();
         order.verify(connection).close();
         verify(statement).executeUpdate();
-        verify(factory).getConnection();
+        verify(factory).getLoginAuditConnection();
     }
 
     @Test
@@ -264,7 +264,7 @@ class JdbcLoginAuditDAOTest {
         verify(connection).commit();
         verify(connection, never()).rollback();
         verify(statement).executeUpdate();
-        verify(factory).getConnection();
+        verify(factory).getLoginAuditConnection();
     }
 
     @Test

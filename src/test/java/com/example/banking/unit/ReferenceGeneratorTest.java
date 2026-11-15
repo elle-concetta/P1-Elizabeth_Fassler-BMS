@@ -98,4 +98,3 @@ class ReferenceGeneratorTest {
         assertThrows(IllegalStateException.class, generator::generateTransactionReference);
     }
 }
-

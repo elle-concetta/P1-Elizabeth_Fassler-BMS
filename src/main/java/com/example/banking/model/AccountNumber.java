@@ -38,6 +38,11 @@ public final class AccountNumber {
         return value;
     }
 
+    /** Customer-facing representation; never use value() to render an account number. */
+    public String masked() {
+        return "****" + value.substring(LENGTH - 4);
+    }
+
     @Override
     public boolean equals(Object other) {
         return this == other
@@ -52,7 +57,7 @@ public final class AccountNumber {
     /** Avoid leaking the full number through automatic object rendering. */
     @Override
     public String toString() {
-        return "AccountNumber[****" + value.substring(LENGTH - 4) + "]";
+        return "AccountNumber[" + masked() + "]";
     }
 
     private static int luhnSum(String digits) {
@@ -72,4 +77,3 @@ public final class AccountNumber {
         return sum;
     }
 }
-

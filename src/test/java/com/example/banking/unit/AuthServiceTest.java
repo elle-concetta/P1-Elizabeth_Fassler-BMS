@@ -40,7 +40,7 @@ class AuthServiceTest {
     private final Customer customer = new Customer(7, "C-fixture", "Test", null, "Person",
             null, null, "test@example.invalid", null, "tester", CustomerStatus.ACTIVE);
     private final Registration input = new Registration("Test", null, "Person", null, null,
-            "test@example.invalid", null, "tester");
+            "test@example.invalid", "2025550123", "tester");
 
     @BeforeEach
     void setup() throws Exception {
@@ -63,6 +63,50 @@ class AuthServiceTest {
         sessions = new SessionManager(clock, Duration.ofSeconds(300));
         auth = new AuthService(connections, customers, hasher, new CustomerValidator(clock),
                 sessions, new LoginAuditDelivery(audits), clock, 5, Duration.ofMinutes(15), 10);
+    }
+
+    @Test
+    void profileAndContactChangesRequireAnActiveSession() {
+        assertThrows(AuthenticationException.class, auth::currentProfile);
+        assertThrows(AuthenticationException.class,
+                () -> auth.updateContact(new ContactDetails("new@example.invalid", "2025550123", null)));
+        verifyNoInteractions(connections, customers);
+    }
+
+    @Test
+    void savedContactUpdatesTheCurrentCustomerSnapshotWithoutNewAuthenticationAudit() throws Exception {
+        auth.login("tester", password());
+        clearInvocations(connections, customers, audits);
+        var details = new ContactDetails("new@example.invalid", "0123456789", "New Street");
+        var updated = new Customer(7, "C-fixture", "Test", null, "Person", null,
+                details.address(), details.email(), details.phone(), "tester", CustomerStatus.ACTIVE);
+        when(customers.findProfile(connection, 7, true)).thenReturn(Optional.of(customer));
+        when(customers.findProfile(connection, 7, false)).thenReturn(Optional.of(updated));
+        assertSame(updated, auth.updateContact(details));
+        assertSame(updated, auth.currentCustomer());
+        verify(customers).updateContact(connection, 7, details);
+        verifyNoInteractions(audits);
+    }
+
+    @Test
+    void sessionExpiringDuringEditPreventsProfileWrite() {
+        auth.login("tester", password());
+        clearInvocations(connections, customers);
+        when(clock.instant()).thenReturn(TIME.plusSeconds(300));
+        assertThrows(SessionExpiredException.class,
+                () -> auth.updateContact(new ContactDetails("new@example.invalid", "2025550123", null)));
+        verifyNoInteractions(connections, customers);
+    }
+
+    @Test
+    void invalidPhoneIsRejectedBeforeDatabaseAccessAndClearsPassword() throws Exception {
+        var invalid = new Registration("Test", null, "Person", null, null,
+                "test@example.invalid", "123", "tester");
+        char[] raw = password();
+        clearInvocations(hasher);
+        assertThrows(ValidationException.class, () -> auth.register(invalid, raw));
+        verifyNoInteractions(connections, customers, audits, hasher);
+        assertCleared(raw);
     }
 
     @Test
@@ -264,4 +308,3 @@ class AuthServiceTest {
         assertTrue(Arrays.equals(zeroes, raw));
     }
 }
-

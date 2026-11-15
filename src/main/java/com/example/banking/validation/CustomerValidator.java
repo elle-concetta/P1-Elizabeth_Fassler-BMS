@@ -2,6 +2,7 @@ package com.example.banking.validation;
 
 import com.example.banking.exception.ValidationException;
 import com.example.banking.model.Registration;
+import com.example.banking.model.ContactDetails;
 import com.example.banking.model.policy.PasswordPolicy;
 
 import java.time.Clock;
@@ -28,20 +29,30 @@ public final class CustomerValidator {
         if (input.username() == null || !input.username().matches("[A-Za-z0-9._-]{3,30}")) {
             throw new ValidationException("Username must be 3–30 letters, digits, dots, underscores or hyphens.");
         }
-        if (input.email() == null || input.email().length() > 254
-                || !input.email().matches("[^\\s@\\p{Cntrl}]+@[^\\s@\\p{Cntrl}]+\\.[^\\s@\\p{Cntrl}]+")) {
-            throw new ValidationException("Enter a valid email address of at most 254 characters.");
-        }
-        optionalText(input.address(), 255, "Address");
-        if (input.phone() != null && !input.phone().isEmpty()
-                && !input.phone().matches("[+0-9() .-]{7,30}")) {
-            throw new ValidationException("Phone must contain 7–30 phone-number characters.");
-        }
+        validateContact(new ContactDetails(input.email(), input.phone(), input.address()));
         if (input.dateOfBirth() != null && (input.dateOfBirth().getYear() < 1000
                 || !input.dateOfBirth().isBefore(LocalDate.now(clock)))) {
             throw new ValidationException("Birth date must be a past date with a year of at least 1000.");
         }
         passwords.validate(input.username(), raw);
+    }
+
+    public static void validateContact(ContactDetails details) {
+        if (details == null) throw new ValidationException("Contact details are required.");
+        if (details.email() == null || details.email().length() > 254
+                || !details.email().matches("[^\\s@\\p{Cntrl}]+@[^\\s@\\p{Cntrl}]+\\.[^\\s@\\p{Cntrl}]+")) {
+            throw new ValidationException("Enter a valid email address of at most 254 characters.");
+        }
+        optionalText(details.address(), 255, "Address");
+        validatePhone(details.phone());
+    }
+
+    /** Keep phone numbers as text so leading zeroes are preserved. */
+    public static void validatePhone(String phone) {
+        if (phone == null || !phone.matches("[0-9]{10}")) {
+            throw new ValidationException(
+                    "Phone number must contain exactly 10 digits (0-9), without spaces or punctuation.");
+        }
     }
 
     private static void name(String value, String label) {
@@ -59,4 +70,3 @@ public final class CustomerValidator {
         }
     }
 }
-

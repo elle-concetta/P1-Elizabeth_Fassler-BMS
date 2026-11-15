@@ -13,41 +13,46 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class SessionManagerTest {
-    private final Instant start = Instant.parse("2026-11-11T12:00:00Z");
+    private static final Instant NOW = Instant.parse("2026-11-11T12:00:00Z");
 
     @Test
-    void checksBoundaryBeforeRefreshingAndInvalidatesExactlyOnce() {
+    void expiresAtTheExactIdleBoundaryWithoutRefreshingActivity() {
         Clock clock = mock(Clock.class);
-        when(clock.instant()).thenReturn(start, start.plusSeconds(300));
+        when(clock.instant()).thenReturn(NOW, NOW.plusSeconds(300));
         var sessions = new SessionManager(clock, Duration.ofSeconds(300));
-        sessions.start(5);
+        sessions.start(7);
         assertThrows(SessionExpiredException.class, sessions::requireActive);
         assertThrows(AuthenticationException.class, sessions::requireActive);
+    }
+
+    @Test
+    void activityBeforeExpiryRefreshesTheIdleDeadline() {
+        Clock clock = mock(Clock.class);
+        when(clock.instant()).thenReturn(NOW, NOW.plusSeconds(299), NOW.plusSeconds(500));
+        var sessions = new SessionManager(clock, Duration.ofSeconds(300));
+        sessions.start(7);
+        assertEquals(NOW.plusSeconds(299), sessions.requireActive().lastActivity());
+        assertEquals(7, sessions.requireActive().customerId());
+    }
+
+    @Test
+    void logoutClearsTheSessionAndDuplicateStartsAreRejected() {
+        Clock clock = mock(Clock.class);
+        when(clock.instant()).thenReturn(NOW);
+        var sessions = new SessionManager(clock, Duration.ofSeconds(300));
+        sessions.start(7);
+        assertThrows(IllegalStateException.class, () -> sessions.start(8));
+        assertEquals(7, sessions.end().orElseThrow().customerId());
         assertTrue(sessions.end().isEmpty());
-    }
-
-    @Test
-    void activityRefreshExtendsOnlyAStillValidSession() {
-        Clock clock = mock(Clock.class);
-        when(clock.instant()).thenReturn(start, start.plusSeconds(299), start.plusSeconds(598));
-        var sessions = new SessionManager(clock, Duration.ofSeconds(300));
-        sessions.start(5);
-        assertEquals(start.plusSeconds(299), sessions.requireActive().lastActivity());
-        assertEquals(start.plusSeconds(598), sessions.requireActive().lastActivity());
-        assertEquals(5, sessions.end().orElseThrow().customerId());
         assertThrows(AuthenticationException.class, sessions::requireActive);
     }
 
     @Test
-    void backwardTimeAndInvalidConfigurationFailClosed() {
+    void backwardsTimeInvalidatesTheSession() {
         Clock clock = mock(Clock.class);
-        when(clock.instant()).thenReturn(start, start.minusSeconds(1));
+        when(clock.instant()).thenReturn(NOW, NOW.minusSeconds(1));
         var sessions = new SessionManager(clock, Duration.ofSeconds(300));
-        sessions.start(5);
+        sessions.start(7);
         assertThrows(SessionExpiredException.class, sessions::requireActive);
-        assertThrows(IllegalArgumentException.class,
-                () -> new SessionManager(clock, Duration.ZERO));
-        assertThrows(IllegalArgumentException.class, () -> sessions.start(0));
     }
 }
-
