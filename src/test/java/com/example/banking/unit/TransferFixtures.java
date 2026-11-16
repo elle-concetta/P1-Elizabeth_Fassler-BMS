@@ -31,4 +31,3 @@ final class TransferFixtures {
     }
     private TransferFixtures() {}
 }
-

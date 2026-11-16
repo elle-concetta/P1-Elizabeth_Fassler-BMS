@@ -78,7 +78,7 @@ public final class JdbcTransactionAuditDAO implements TransactionAuditDAO {
                     } else {
                         statement.setNull(2, Types.VARCHAR);
                     }
-                    statement.setString(3, audit.eventType().name());
+                    statement.setString(3, audit.event().name());
                     statement.setString(4, audit.outcome().name());
                     if (audit.failureCode().isPresent()) {
                         statement.setString(5, audit.failureCode().orElseThrow());

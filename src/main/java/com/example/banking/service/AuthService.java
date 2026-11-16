@@ -7,6 +7,7 @@ import com.example.banking.dao.jdbc.JdbcSecurityAuditDAO;
 import com.example.banking.dao.jdbc.JdbcAccountDAO;
 import com.example.banking.dao.jdbc.JdbcTransactionDAO;
 import com.example.banking.dao.jdbc.JdbcTransactionHistoryDAO;
+import com.example.banking.dao.jdbc.JdbcSpecialAccountDAO;
 import com.example.banking.dao.jdbc.JdbcTransactionAuditDAO;
 import com.example.banking.exception.*;
 import com.example.banking.model.*;
@@ -47,6 +48,8 @@ public final class AuthService {
     private final AccountService accountService;
     private final TransactionService transactions;
     private final HistoryService history;
+    private final SpecialAccountService special;
+    private final boolean refreshMaturity;
     private PasswordChangeUnconfirmedException pendingPasswordChange;
     private Customer currentCustomer;
     private LoginAuditDelivery.Result pendingAudit;
@@ -76,6 +79,17 @@ public final class AuthService {
                        Clock clock, int maxFailures, Duration lockDuration, int queryTimeout,
                        SecurityAuditDAO securityAudit, Money maximumDeposit,
                        TransactionAuditDAO financialAudit) {
+        this(connections, customers, passwords, validator, sessions, delivery, clock, maxFailures,
+                lockDuration, queryTimeout, securityAudit, maximumDeposit, financialAudit, Money.parse("0.01"), false);
+    }
+
+    /** Production explicitly enables the documented lazy maturity lifecycle. */
+    public AuthService(ConnectionFactory connections, CustomerDAO customers,
+                       PasswordHasher passwords, CustomerValidator validator,
+                       SessionManager sessions, LoginAuditDelivery delivery,
+                       Clock clock, int maxFailures, Duration lockDuration, int queryTimeout,
+                       SecurityAuditDAO securityAudit, Money maximumDeposit,
+                       TransactionAuditDAO financialAudit, Money minimumDeposit, boolean refreshMaturity) {
         this.connections = Objects.requireNonNull(connections);
         this.customers = Objects.requireNonNull(customers);
         this.passwords = Objects.requireNonNull(passwords);
@@ -101,6 +115,11 @@ public final class AuthService {
                 clock, maximumDeposit, queryTimeout);
         this.history = new HistoryService(connections, new JdbcAccountDAO(queryTimeout), customers,
                 new JdbcTransactionHistoryDAO(queryTimeout), this::currentCustomer, queryTimeout);
+        this.special = new SpecialAccountService(transactions, new JdbcAccountDAO(queryTimeout),
+                new JdbcSpecialAccountDAO(queryTimeout), new JdbcTransactionDAO(queryTimeout),
+                connections, this::currentCustomer, referenceGenerator::generateAccountNumber, clock,
+                maximumDeposit, minimumDeposit);
+        this.refreshMaturity = refreshMaturity;
         char[] dummy = "Not-A-Real-Account-1!".toCharArray();
         try {
             dummyHash = passwords.hash(dummy);
@@ -173,6 +192,7 @@ public final class AuthService {
             deliver(new LoginAudit(null, result.customer() == null ? null : result.customer().customerId(),
                     attempted, result.outcome(), result.reason(), now));
             if (result.outcome() != LoginOutcome.SUCCESS) throw new AuthenticationException();
+            if (refreshMaturity) special.refreshMaturity(result.customer().customerId());
             sessions.start(result.customer().customerId());
             currentCustomer = result.customer();
             return currentCustomer;
@@ -266,7 +286,23 @@ public final class AuthService {
 
     public Account openAccount(AccountType type) { return accountService.open(type); }
 
-    public java.util.List<Account> accounts() { return accountService.list(); }
+    public java.util.List<Account> accounts() {
+        if (refreshMaturity) special.refreshMaturity();
+        return accountService.list();
+    }
+
+    public SpecialReceipt openTermDeposit(long funding, String principal, int months) {
+        return special.openDeposit(funding, principal, months);
+    }
+    public SpecialReceipt settleTermDeposit(long deposit, long destination) {
+        return special.settleDeposit(deposit, destination);
+    }
+    public SpecialReceipt openLoan(String principal, int months, java.time.LocalDate start) {
+        return special.openLoan(principal, months, start);
+    }
+    public SpecialReceipt repayLoan(long funding, long loan, String amount) {
+        return special.repayLoan(funding, loan, amount);
+    }
 
     public Account accountDetails(long accountId) { return accountService.details(accountId); }
 
@@ -309,6 +345,7 @@ public final class AuthService {
     }
 
     public void logout() {
+        ensureAvailable();
         Customer ended = currentCustomer;
         currentCustomer = null;
         Optional<SessionContext> active = sessions.end();

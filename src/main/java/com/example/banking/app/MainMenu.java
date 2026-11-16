@@ -25,7 +25,7 @@ public final class MainMenu {
             try {
                 if (auth.pendingDeposit().isPresent()) {
                     var pending = auth.pendingDeposit().orElseThrow();
-                    input.println(pending.evidence().eventType()
+                    input.println(pending.evidence().event()
                             + " RECONCILIATION REQUIRED. Authentication is blocked.");
                     input.println("Reference: " + pending.evidence().referenceNumber().orElseThrow().value());
                     input.println("Keep this process open and ask an administrator to reconcile. "

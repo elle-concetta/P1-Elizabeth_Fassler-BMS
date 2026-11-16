@@ -24,7 +24,8 @@ public final class AccountMenu {
             input.println("\nMY ACCOUNTS\n1. Open Savings account (zero balance)"
                     + "\n2. Open Current account (zero balance)\n3. List my accounts"
                     + "\n4. View account balance/details\n5. Deposit money\n6. Withdraw money"
-                    + "\n7. Transfer money\n8. Transaction history\n0. Back to customer menu");
+                    + "\n7. Transfer money\n8. Transaction history"
+                    + "\n9. Term Deposit accounts\n10. Loan accounts\n0. Back to customer menu");
             try {
                 String choice = input.text("Choice: ", 10);
                 if (choice == null || choice.equals("0")) return;
@@ -37,7 +38,9 @@ public final class AccountMenu {
                     case "6" -> money(true);
                     case "7" -> transfer();
                     case "8" -> new HistoryMenu(auth, input).run(readAccountId());
-                    default -> input.println("Choose 0, 1, 2, 3, 4, 5, 6, 7 or 8.");
+                    case "9" -> new SpecialAccountMenu(auth, input).run(false);
+                    case "10" -> new SpecialAccountMenu(auth, input).run(true);
+                    default -> input.println("Choose a listed option from 0 to 10.");
                 }
             } catch (ConsoleInput.Cancelled cancelled) {
                 input.println("Account action cancelled.");
@@ -142,3 +145,4 @@ public final class AccountMenu {
                 + "% | Minimum balance: " + account.minimumBalance());
     }
 }
+

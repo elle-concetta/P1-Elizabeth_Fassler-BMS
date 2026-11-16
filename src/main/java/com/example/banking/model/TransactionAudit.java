@@ -17,7 +17,7 @@ public final class TransactionAudit {
     private final Long auditId;
     private final long customerId;
     private final TransactionReference referenceNumber;
-    private final TransactionType eventType;
+    private final FinancialAuditEvent eventType;
     private final AuditOutcome outcome;
     private final String failureCode;
     private final Instant createdAt;
@@ -36,6 +36,13 @@ public final class TransactionAudit {
     public TransactionAudit(Long auditId, long customerId,
                             TransactionReference referenceNumber, TransactionType eventType,
                             AuditOutcome outcome, String failureCode, Instant createdAt) {
+        this(eventType == null ? null : FinancialAuditEvent.valueOf(eventType.name()),
+                auditId, customerId, referenceNumber, outcome, failureCode, createdAt);
+    }
+
+    public TransactionAudit(FinancialAuditEvent eventType, Long auditId, long customerId,
+                            TransactionReference referenceNumber, AuditOutcome outcome,
+                            String failureCode, Instant createdAt) {
         if (auditId != null && auditId <= 0) {
             throw new IllegalArgumentException("Audit ID must be positive when present.");
         }
@@ -78,8 +85,13 @@ public final class TransactionAudit {
     }
 
     public TransactionType eventType() {
-        return eventType;
+        if (eventType == FinancialAuditEvent.LOAN_CREATION)
+            throw new IllegalStateException("Loan creation has no cash ledger type. Use event().");
+        return TransactionType.valueOf(eventType.name());
     }
+
+    /** Includes lifecycle evidence that must never be inserted into the cash ledger. */
+    public FinancialAuditEvent event() { return eventType; }
 
     public AuditOutcome outcome() {
         return outcome;

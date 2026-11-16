@@ -28,14 +28,25 @@ public final class JdbcTransactionDAO implements TransactionDAO {
 
     @Override
     public void insertTransfer(Connection connection, BankTransaction tx) throws SQLException {
-        if (tx == null || tx.type() != TransactionType.TRANSFER || !TransactionValidator.supportedTime(tx.createdAt()))
+        insertPair(connection, tx, TransactionType.TRANSFER);
+    }
+
+    @Override
+    public void insertRepayment(Connection connection, BankTransaction tx) throws SQLException {
+        insertPair(connection, tx, TransactionType.LOAN_REPAYMENT);
+    }
+
+    private void insertPair(Connection connection, BankTransaction tx, TransactionType kind) throws SQLException {
+        if (tx == null || tx.type() != kind || !TransactionValidator.supportedTime(tx.createdAt()))
             throw new IllegalArgumentException("Ledger shape/time is unsupported; no write attempted.");
-        try (var query = connection.prepareStatement("""
+        String sql = """
                 INSERT INTO transactions (reference_number, source_account_id, destination_account_id,
                     transaction_type, amount, status, description, source_balance_before,
                     dest_balance_before, source_balance_after, dest_balance_after, created_at)
                 VALUES (?, ?, ?, 'TRANSFER', ?, 'SUCCESS', NULL, ?, ?, ?, ?, ?)
-                """)) {
+                """;
+        if (kind == TransactionType.LOAN_REPAYMENT) sql = sql.replace("'TRANSFER'", "'LOAN_REPAYMENT'");
+        try (var query = connection.prepareStatement(sql)) {
             query.setQueryTimeout(timeout);
             query.setString(1, tx.reference().value());
             query.setLong(2, tx.sourceId());

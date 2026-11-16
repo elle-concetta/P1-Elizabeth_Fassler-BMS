@@ -15,7 +15,7 @@ public final class HistoryMenu {
     }
 
     public void run(long accountId) {
-        input.println("HISTORY FILTERS — dates are UTC; start inclusive, end exclusive. Blank means no filter.");
+        input.println("HISTORY FILTERS - dates are UTC; start inclusive, end exclusive. Blank means no filter.");
         var start = HistoryQuery.date(input.field("Start date YYYY-MM-DD (optional)", 10));
         var end = HistoryQuery.date(input.field("End date YYYY-MM-DD (optional, exclusive)", 10));
         var type = HistoryQuery.transactionType(input.field(
@@ -56,4 +56,3 @@ public final class HistoryMenu {
         }
     }
 }
-

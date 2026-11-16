@@ -186,7 +186,7 @@ class TransactionAuditTest {
                 .filter(method -> Modifier.isPublic(method.getModifiers()))
                 .peek(method -> assertEquals(0, method.getParameterCount()))
                 .map(method -> method.getName()).collect(Collectors.toSet());
-        assertEquals(Set.of("auditId", "customerId", "referenceNumber", "eventType", "outcome",
+        assertEquals(Set.of("auditId", "customerId", "referenceNumber", "eventType", "event", "outcome",
                 "failureCode", "createdAt", "toString"), publicMethods);
     }
 

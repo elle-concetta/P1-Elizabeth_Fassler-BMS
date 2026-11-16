@@ -33,8 +33,13 @@ public final class TransactionService {
         }
     }
 
-    private record Execution(BankTransaction receipt, MoneyState money, AuditOutcome outcome,
+    private record Execution(Object receipt, MoneyState money, AuditOutcome outcome,
                              String failureCode, String message) {}
+
+    @FunctionalInterface
+    public interface FinancialWork<T> {
+        T execute(Connection connection, long owner, TransactionReference reference, Instant time) throws SQLException;
+    }
 
     private final ConnectionFactory connections;
     private final AccountDAO accounts;
@@ -69,10 +74,12 @@ public final class TransactionService {
 
     public FinancialOperationException pendingFailure() {
         if (pending == null) throw new IllegalStateException("No pending financial operation.");
-        TransactionType type = pending.evidence().eventType();
+        FinancialAuditEvent type = pending.evidence().event();
         String operation = switch (type) {
             case WITHDRAWAL -> "Withdrawal";
             case TRANSFER -> "Transfer";
+            case LOAN_CREATION -> "Loan creation";
+            case LOAN_REPAYMENT -> "Loan repayment";
             default -> "Deposit";
         };
         String message = switch (pending.moneyState()) {
@@ -129,7 +136,33 @@ public final class TransactionService {
                     : execute(type, owner, accountId, amount, reference, time, destination);
         }
 
-        TransactionAudit evidence = new TransactionAudit(null, owner, reference, type,
+        return (BankTransaction) finish(FinancialAuditEvent.valueOf(type.name()), owner, reference, time, result);
+    }
+
+    public SpecialReceipt dedicated(FinancialAuditEvent type, FinancialWork<SpecialReceipt> work) {
+        return dedicatedPrepared(type, ignored -> work);
+    }
+
+    /** Validation runs after authentication/capture but before acquiring a primary connection. */
+    public SpecialReceipt dedicatedPrepared(FinancialAuditEvent type,
+                                            java.util.function.Function<Instant, FinancialWork<SpecialReceipt>> prepare) {
+        if (type != FinancialAuditEvent.TRANSFER && type != FinancialAuditEvent.LOAN_CREATION
+                && type != FinancialAuditEvent.LOAN_REPAYMENT) throw new IllegalArgumentException("Dedicated event type required.");
+        long owner = identity.get().customerId();
+        if (pending != null) throw pendingFailure();
+        TransactionReference reference = Objects.requireNonNull(references.get());
+        Instant time = Objects.requireNonNull(clock.instant());
+        Execution result;
+        if (!TransactionValidator.supportedTime(time)) result = rejected("UNSUPPORTED_TIMESTAMP", "Transaction clock is unsupported.");
+        else {
+            try { result = executeWork(owner, reference, time, prepare.apply(time)); }
+            catch (Rejected invalid) { result = rejected(invalid.code, invalid.getMessage()); }
+        }
+        return (SpecialReceipt) finish(type, owner, reference, time, result);
+    }
+
+    private Object finish(FinancialAuditEvent type, long owner, TransactionReference reference, Instant time, Execution result) {
+        TransactionAudit evidence = new TransactionAudit(type, null, owner, reference,
                 result.outcome(), result.failureCode(), time);
         pending = new PendingDeposit(evidence, result.money(), AuditState.NOT_ATTEMPTED);
         try {
@@ -149,6 +182,13 @@ public final class TransactionService {
 
     private Execution execute(TransactionType type, long owner, long id, Money amount,
                               TransactionReference reference, Instant time, AccountNumber destination) {
+        return executeWork(owner, reference, time, (connection, customer, ref, captured) ->
+                type == TransactionType.TRANSFER
+                        ? transfer(connection, customer, id, destination, amount, ref, captured)
+                        : single(connection, type, customer, id, amount, ref, captured));
+    }
+
+    private Execution executeWork(long owner, TransactionReference reference, Instant time, FinancialWork<?> work) {
         Connection connection = null;
         boolean commitAttempted = false;
         Execution result = failed("DATABASE_UNAVAILABLE", MoneyState.UNCHANGED);
@@ -165,9 +205,7 @@ public final class TransactionService {
             Customer customer = customers.findProfile(connection, owner, true).orElse(null);
             if (customer == null || customer.customerId() != owner || customer.status() != CustomerStatus.ACTIVE)
                 throw new Rejected("CUSTOMER_UNAVAILABLE", "Customer is not available for money operations.");
-            BankTransaction receipt = type == TransactionType.TRANSFER
-                    ? transfer(connection, owner, id, destination, amount, reference, time)
-                    : single(connection, type, owner, id, amount, reference, time);
+            Object receipt = work.execute(connection, owner, reference, time);
             commitAttempted = true;
             connection.commit();
             result = new Execution(receipt, MoneyState.COMMITTED, AuditOutcome.SUCCESS, null, "");
@@ -293,16 +331,17 @@ public final class TransactionService {
                 ? AuditOutcome.ROLLED_BACK : AuditOutcome.FAILED, code, "Money operation could not be completed.");
     }
 
-    private static FinancialOperationException failure(TransactionType type, String message, TransactionReference reference) {
+    private static FinancialOperationException failure(FinancialAuditEvent type, String message, TransactionReference reference) {
         return switch (type) {
             case WITHDRAWAL -> new WithdrawalException(message, reference);
             case TRANSFER -> new TransferException(message, reference);
+            case LOAN_CREATION, LOAN_REPAYMENT -> new FinancialOperationException(message, reference);
             default -> new DepositException(message, reference);
         };
     }
 
-    private static final class Rejected extends RuntimeException {
+    public static final class Rejected extends RuntimeException {
         final String code;
-        Rejected(String code, String safeMessage) { super(safeMessage); this.code = code; }
+        public Rejected(String code, String safeMessage) { super(safeMessage); this.code = code; }
     }
 }

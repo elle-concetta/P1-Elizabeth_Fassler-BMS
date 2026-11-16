@@ -45,7 +45,8 @@ public final class BankingApplication {
                     config.getPositiveInt("db.query.timeout.seconds"),
                     new JdbcSecurityAuditDAO(config.getPositiveInt("db.query.timeout.seconds")),
                     new Money(config.getPositiveDecimal("tx.max.amount")),
-                    new JdbcTransactionAuditDAO(connections, config.getPositiveInt("db.query.timeout.seconds")));
+                    new JdbcTransactionAuditDAO(connections, config.getPositiveInt("db.query.timeout.seconds")),
+                    new Money(config.getPositiveDecimal("deposit.min.principal")), true);
             LOGGER.info("Banking CLI started.");
             new MainMenu(auth, input).run();
         } catch (Exception failure) {
