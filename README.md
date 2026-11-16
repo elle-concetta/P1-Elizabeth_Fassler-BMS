@@ -134,10 +134,7 @@ The goal is to let customers register, sign in, manage accounts, and carry out b
 
 ## Build and Run
 
-Use JDK 27 and Maven 3.9+ for the updated local setup. Verify the runtime with
-`mvn -version`: a compiler release property does not select Maven's Java runtime.
-The checked-in POM now targets Java 27 and includes the Mockito dependencies and
-explicit test agent used in the walkthrough. To test and build the JAR, run:
+Use JDK 27 and Maven 3.9+ for the updated local setup. Verify the runtime with`mvn -version`: a compiler release property does not select Maven's Java runtime. The checked-in POM now targets Java 27 and includes the Mockito dependencies andexplicit test agent  used in the walkthrough. To test and build the JAR, run:
 
 ```bash
 mvn test
@@ -145,10 +142,7 @@ mvn clean package
 java -jar target/banking-cli.jar
 ```
 
-The repository includes JAR packaging, 28 configuration tests, and nine
-connection-factory tests. The full commands above have not been verified here
-on Java 27. Packaging and launching the local project as an executable JAR
-still need to be checked.
+The repository includes JAR packaging, 28 configuration tests, and nine connection-factory tests. The full commands above have not been verified here on Java 27. Packaging and launching the local project as an executable JAR still need to be checked.
 
 ## Required Libraries
 
@@ -177,21 +171,147 @@ The versions below match the local setup guidance and are now declared in the re
 | `org.mockito:mockito-core` | 5.24.0 | Test |
 | `org.mockito:mockito-junit-jupiter` | 5.24.0 | Test |
 
-The local configuration uses Compiler 3.13.0 with release 27, Surefire 3.5.2,
-and Dependency Plugin 3.11.0 to resolve the Mockito agent. Mockito 5.24.0 brings
-Byte Buddy 1.17.7 without a separate override.
+The local configuration uses Compiler 3.13.0 with release 27, Surefire 3.5.2, and Dependency Plugin 3.11.0 to resolve the Mockito agent. Mockito 5.24.0 brings Byte Buddy 1.17.7 without a separate override.
 
-The checked-in build also includes Shade 3.6.0 for packaging and
-Failsafe 3.5.2 for the `integration` profile. Its main class is
-`com.example.banking.app.BankingApplication`. Those packaging settings are not
-confirmed in the local POM merely because its tests pass.
+The checked-in build also includes Shade 3.6.0 for packaging and Failsafe 3.5.2 for the `integration` profile. Its main class is `com.example.banking.app.BankingApplication`. Those packaging settings are not confirmed in the local POM merely because its tests pass.
 
-Choose the driver using the **server version**, not Workbench or Shell versions.
-Connector/J 9.7.0 documents support for MySQL 8.0+, while 26.7.0 and 26.10.0
-document support for 8.4+. The earlier 8.0.46 setup raised a security warning
-recommending an unaffected driver; do not suppress a CVE warning to retain an
-older compatible driver. Refresh dependency inspections after upgrades.
+Choose the driver using the **server version**, not Workbench or Shell versions. Connector/J 9.7.0 documents support for MySQL 8.0+, while 26.7.0 and 26.10.0 document support for 8.4+. The earlier 8.0.46 setup raised a security warning recommending an unaffected driver; do not suppress a CVE warning to retain an older compatible driver. Refresh dependency inspections after upgrades.
 
-Passwords must be hashed, not reversibly encrypted. Mockito connection tests do
-not contact MySQL; real database integration tests are also required to prove
-SQL constraints, transactions, rollback, and locking.
+Passwords must be hashed, not reversibly encrypted. Mockito connection tests do not contact MySQL; real database integration tests are also required to prove SQL constraints, transactions, rollback, and locking.
+
+## Step 1 — Maven and first test walkthrough
+
+MySQL does not need to be running for this first setup test.
+
+### 1. Check Java and Maven
+
+Run from the folder containing `pom.xml`:
+
+```bash
+java -version
+mvn -version
+```
+
+Use JDK 27 and Maven 3.9+. Confirm that Maven also reports Java 27. In IntelliJ, open **File → Project Structure → Project** and select JDK 27. Under **Settings → Build, Execution, Deployment → Build Tools → Maven**, select an installed Maven or IntelliJ's bundled Maven.
+
+If the terminal cannot find `mvn`, the Maven tool window can still run goals with bundled Maven. Downloading a JDK inside IntelliJ does not necessarily put `java`on the terminal's PATH; configure the local JDK/PATH if using terminal commands.
+
+### 2. Add Mockito Test Dependencies
+
+Keep these properties in the local POM:
+
+```xml
+<maven.compiler.release>27</maven.compiler.release>
+<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+<mockito.version>5.24.0</mockito.version>
+```
+
+These entries are already included in this repository's `<dependencies>`. If adding them to a local POM, update existing entries rather than duplicating them:
+
+```xml
+<dependency>
+    <groupId>org.mockito</groupId>
+    <artifactId>mockito-core</artifactId>
+    <version>${mockito.version}</version>
+    <scope>test</scope>
+</dependency>
+
+<dependency>
+    <groupId>org.mockito</groupId>
+    <artifactId>mockito-junit-jupiter</artifactId>
+    <version>${mockito.version}</version>
+    <scope>test</scope>
+</dependency>
+```
+
+Reload the Maven project after saving. Keep the existing dependencies and plugins. Test scope keeps Mockito out of the packaged application's runtime dependencies.
+
+In the existing `<build><plugins>` section, add the dependency plugin and update the existing Surefire entry, rather than adding a duplicate:
+
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-dependency-plugin</artifactId>
+    <version>3.11.0</version>
+    <executions>
+        <execution>
+            <id>resolve-dependency-paths</id>
+            <phase>initialize</phase>
+            <goals>
+                <goal>properties</goal>
+            </goals>
+        </execution>
+    </executions>
+</plugin>
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-surefire-plugin</artifactId>
+    <version>3.5.2</version>
+    <configuration>
+        <argLine>-javaagent:"${org.mockito:mockito-core:jar}"</argLine>
+    </configuration>
+</plugin>
+```
+
+This explicitly loads Mockito's agent for Maven tests. The older Mockito/Byte Buddy setup failed under Java 27 even when compilation targeted Java 17. Experimental flags are not needed for the reported passing updated setup.
+
+### 3. Create the first JUnit/Mockito test
+
+Create this Java file:
+
+```text
+src/test/java/com/example/banking/unit/ConnectionMockTest.java
+```
+
+In IntelliJ, right-click the `unit` package and choose **New → Java Class**. Enter `ConnectionMockTest`; the IDE supplies the `.java` extension.
+
+```java
+package com.example.banking.unit;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.sql.Connection;
+import java.sql.SQLException;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class ConnectionMockTest {
+
+    @Mock
+    private Connection connection;
+
+    @Test
+    void shouldUseMockDatabaseConnection() throws SQLException {
+        // Arrange: define the simulated connection response.
+        when(connection.isValid(2)).thenReturn(true);
+
+        // Act: call the simulated connection.
+        boolean valid = connection.isValid(2);
+
+        // Assert: check the result and expected interaction.
+        assertTrue(valid);
+        verify(connection).isValid(2);
+    }
+}
+```
+
+`@Mock` creates a simulated JDBC connection, `when` defines its response,`assertTrue` checks the result, and `verify` checks the call. The extension initializes the mock. This test confirms the JUnit/Mockito setup only; it does not yet test application behavior or a real database connection.
+
+### 4. Run tests, package, and launch
+
+```bash
+mvn test
+mvn clean package
+java -jar target/banking-cli.jar
+```
+
+After adding the test, expect a nonzero executed test count, zero failures/errors, and `BUILD SUCCESS`. Running the commands before adding a test does not prove the test runner executed a test.
+
+In IntelliJ's Maven tool window, **Lifecycle → test** runs the tests and **Lifecycle → package** packages the application. The `target` directory is generated automatically; do not create it manually.
+
