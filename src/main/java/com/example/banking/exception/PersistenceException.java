@@ -5,3 +5,4 @@ public final class PersistenceException extends BankingException {
         super("The operation could not be completed.", cause);
     }
 }
+
