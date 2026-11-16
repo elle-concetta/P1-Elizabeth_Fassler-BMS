@@ -13,14 +13,14 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 
-/** One-shot deposits/withdrawals; independent evidence delivery AFTER primary cleanup. */
+/** One-shot ordinary money operations; independent evidence AFTER primary cleanup. */
 public final class TransactionService {
     public enum MoneyState { UNCHANGED, COMMITTED, UNCONFIRMED }
     public enum AuditState { NOT_ATTEMPTED, SAVED, REJECTED_NO_WRITE, SAVE_UNCERTAIN }
 
     /**
      * Exact evidence retained only in memory; never log it. The existing record name
-     * is retained for source compatibility, but its eventType identifies either operation.
+     * is retained for source compatibility, but its eventType identifies the operation.
      */
     public record PendingDeposit(TransactionAudit evidence, MoneyState moneyState, AuditState auditState) {
         public PendingDeposit {
@@ -70,7 +70,11 @@ public final class TransactionService {
     public FinancialOperationException pendingFailure() {
         if (pending == null) throw new IllegalStateException("No pending financial operation.");
         TransactionType type = pending.evidence().eventType();
-        String operation = type == TransactionType.WITHDRAWAL ? "Withdrawal" : "Deposit";
+        String operation = switch (type) {
+            case WITHDRAWAL -> "Withdrawal";
+            case TRANSFER -> "Transfer";
+            default -> "Deposit";
+        };
         String message = switch (pending.moneyState()) {
             case COMMITTED -> operation + " committed, but audit storage is not confirmed.";
             case UNCHANGED -> "Balance is unchanged, but audit storage is not confirmed.";
@@ -82,14 +86,18 @@ public final class TransactionService {
     }
 
     public BankTransaction deposit(long accountId, String suppliedAmount) {
-        return operate(TransactionType.DEPOSIT, accountId, suppliedAmount);
+        return operate(TransactionType.DEPOSIT, accountId, suppliedAmount, null);
     }
 
     public BankTransaction withdraw(long accountId, String suppliedAmount) {
-        return operate(TransactionType.WITHDRAWAL, accountId, suppliedAmount);
+        return operate(TransactionType.WITHDRAWAL, accountId, suppliedAmount, null);
     }
 
-    private BankTransaction operate(TransactionType type, long accountId, String suppliedAmount) {
+    public TransferReceipt transfer(long sourceId, String destinationNumber, String suppliedAmount) {
+        return TransferReceipt.from(operate(TransactionType.TRANSFER, sourceId, suppliedAmount, destinationNumber));
+    }
+
+    private BankTransaction operate(TransactionType type, long accountId, String suppliedAmount, String suppliedDestination) {
         // The callback rechecks session expiry and pending evidence after form input.
         long owner = identity.get().customerId();
         if (pending != null) throw pendingFailure();
@@ -107,10 +115,18 @@ public final class TransactionService {
             } catch (ValidationException invalid) {
                 // Only the constant code/message is retained, never the supplied string.
             }
+            AccountNumber destination = null;
+            if (type == TransactionType.TRANSFER && suppliedDestination != null
+                    && suppliedDestination.length() == AccountNumber.LENGTH) {
+                try { destination = new AccountNumber(suppliedDestination); }
+                catch (IllegalArgumentException invalid) { /* retain only the safe code below */ }
+            }
             result = amount == null
                     ? rejected("INVALID_AMOUNT", "Amount must be positive, within the configured limit, "
                     + "and use at most two decimal places.")
-                    : execute(type, owner, accountId, amount, reference, time);
+                    : type == TransactionType.TRANSFER && destination == null
+                    ? rejected("INVALID_DESTINATION_ACCOUNT", "Enter the recipient's full valid 24-digit account number.")
+                    : execute(type, owner, accountId, amount, reference, time, destination);
         }
 
         TransactionAudit evidence = new TransactionAudit(null, owner, reference, type,
@@ -132,7 +148,7 @@ public final class TransactionService {
     }
 
     private Execution execute(TransactionType type, long owner, long id, Money amount,
-                              TransactionReference reference, Instant time) {
+                              TransactionReference reference, Instant time, AccountNumber destination) {
         Connection connection = null;
         boolean commitAttempted = false;
         Execution result = failed("DATABASE_UNAVAILABLE", MoneyState.UNCHANGED);
@@ -149,35 +165,9 @@ public final class TransactionService {
             Customer customer = customers.findProfile(connection, owner, true).orElse(null);
             if (customer == null || customer.customerId() != owner || customer.status() != CustomerStatus.ACTIVE)
                 throw new Rejected("CUSTOMER_UNAVAILABLE", "Customer is not available for money operations.");
-            Account account = accounts.lockOwned(connection, owner, id).orElse(null);
-            if (account == null || account.accountId() != id || account.customerId() != owner)
-                throw new Rejected("ACCOUNT_NOT_FOUND", "Account not found.");
-            if (account.status() != AccountStatus.ACTIVE)
-                throw new Rejected("ACCOUNT_UNAVAILABLE", "Account is not active.");
-            if (account.type() != AccountType.SAVINGS && account.type() != AccountType.CURRENT)
-                throw new Rejected("ACCOUNT_TYPE_NOT_ELIGIBLE", "This operation requires a Savings or Current account.");
-            if (type == TransactionType.WITHDRAWAL) {
-                if (account.balance().compareTo(amount) < 0)
-                    throw new Rejected("INSUFFICIENT_FUNDS", "Insufficient funds.");
-                if (account.balance().subtract(amount).compareTo(account.minimumBalance()) < 0)
-                    throw new Rejected("MINIMUM_BALANCE", "Withdrawal would breach the account's minimum balance.");
-            }
-            BankTransaction receipt;
-            try {
-                receipt = type == TransactionType.DEPOSIT
-                        ? BankTransaction.deposit(reference, account, amount, time)
-                        : BankTransaction.withdrawal(reference, account, amount, time);
-            } catch (IllegalArgumentException overflow) {
-                throw new Rejected("BALANCE_OVERFLOW", "The resulting balance exceeds supported storage.");
-            }
-            accounts.updateBalance(connection, owner, id, receipt.balanceBefore(), receipt.balanceAfter());
-            if (type == TransactionType.DEPOSIT) ledger.insertDeposit(connection, receipt);
-            else ledger.insertWithdrawal(connection, receipt);
-            Account after = accounts.findOwned(connection, owner, id).orElse(null);
-            if (after == null || after.customerId() != owner || after.accountId() != id
-                    || !after.number().equals(account.number()) || after.type() != account.type()
-                    || after.status() != AccountStatus.ACTIVE || !after.balance().equals(receipt.balanceAfter()))
-                throw new SQLException("Balance read-back did not match.");
+            BankTransaction receipt = type == TransactionType.TRANSFER
+                    ? transfer(connection, owner, id, destination, amount, reference, time)
+                    : single(connection, type, owner, id, amount, reference, time);
             commitAttempted = true;
             connection.commit();
             result = new Execution(receipt, MoneyState.COMMITTED, AuditOutcome.SUCCESS, null, "");
@@ -205,6 +195,89 @@ public final class TransactionService {
         return result;
     }
 
+    private BankTransaction single(Connection connection, TransactionType type, long owner, long id,
+                                   Money amount, TransactionReference reference, Instant time) throws SQLException {
+        Account account = owned(accounts.lockOwned(connection, owner, id).orElse(null), owner, id);
+        eligible(account);
+        if (type == TransactionType.WITHDRAWAL) debitAllowed(account, amount);
+        BankTransaction receipt;
+        try {
+            receipt = type == TransactionType.DEPOSIT ? BankTransaction.deposit(reference, account, amount, time)
+                    : BankTransaction.withdrawal(reference, account, amount, time);
+        } catch (IllegalArgumentException overflow) {
+            throw new Rejected("BALANCE_OVERFLOW", "The resulting balance exceeds supported storage.");
+        }
+        accounts.updateBalance(connection, owner, id, receipt.balanceBefore(), receipt.balanceAfter());
+        if (type == TransactionType.DEPOSIT) ledger.insertDeposit(connection, receipt);
+        else ledger.insertWithdrawal(connection, receipt);
+        readBack(connection, account, receipt.balanceAfter());
+        return receipt;
+    }
+
+    private BankTransaction transfer(Connection connection, long owner, long id, AccountNumber number,
+                                     Money amount, TransactionReference reference, Instant time) throws SQLException {
+        // This nonlocking owned read prevents routing probes from an unauthorized source.
+        // It is NOT authoritative for funds; all rules are checked again under both locks.
+        owned(accounts.findOwned(connection, owner, id).orElse(null), owner, id);
+        long destinationId = accounts.findDestinationId(connection, number).orElse(0);
+        if (destinationId <= 0) throw new Rejected("ACCOUNT_NOT_FOUND", "Account not found.");
+        if (destinationId == id) throw new Rejected("SAME_ACCOUNT", "Source and recipient must be different accounts.");
+        Account source, destination;
+        if (id < destinationId) {
+            source = accounts.lockOwned(connection, owner, id).orElse(null);
+            destination = accounts.lockDestination(connection, destinationId).orElse(null);
+        } else {
+            destination = accounts.lockDestination(connection, destinationId).orElse(null);
+            source = accounts.lockOwned(connection, owner, id).orElse(null);
+        }
+        owned(source, owner, id);
+        if (destination == null || destination.accountId() != destinationId || !destination.number().equals(number))
+            throw new Rejected("ACCOUNT_NOT_FOUND", "Account not found.");
+        eligible(source);
+        eligible(destination);
+        debitAllowed(source, amount);
+        BankTransaction receipt;
+        try { receipt = BankTransaction.transfer(reference, source, destination, amount, time); }
+        catch (IllegalArgumentException overflow) {
+            throw new Rejected("BALANCE_OVERFLOW", "The resulting balance exceeds supported storage.");
+        }
+        accounts.updateBalance(connection, owner, id, receipt.balanceBefore(), receipt.balanceAfter());
+        accounts.updateBalance(connection, destination.customerId(), destinationId,
+                receipt.destinationBalanceBefore(), receipt.destinationBalanceAfter());
+        ledger.insertTransfer(connection, receipt);
+        readBack(connection, source, receipt.balanceAfter());
+        readBack(connection, destination, receipt.destinationBalanceAfter());
+        return receipt;
+    }
+
+    private static Account owned(Account account, long owner, long id) {
+        if (account == null || account.accountId() != id || account.customerId() != owner)
+            throw new Rejected("ACCOUNT_NOT_FOUND", "Account not found.");
+        return account;
+    }
+
+    private static void eligible(Account account) {
+        if (account.status() != AccountStatus.ACTIVE)
+            throw new Rejected("ACCOUNT_UNAVAILABLE", "Account is not active.");
+        if (account.type() != AccountType.SAVINGS && account.type() != AccountType.CURRENT)
+            throw new Rejected("ACCOUNT_TYPE_NOT_ELIGIBLE", "This operation requires a Savings or Current account.");
+    }
+
+    private static void debitAllowed(Account account, Money amount) {
+        if (account.balance().compareTo(amount) < 0)
+            throw new Rejected("INSUFFICIENT_FUNDS", "Insufficient funds.");
+        if (account.balance().subtract(amount).compareTo(account.minimumBalance()) < 0)
+            throw new Rejected("MINIMUM_BALANCE", "Debit would breach the account's minimum balance.");
+    }
+
+    private void readBack(Connection connection, Account before, Money expected) throws SQLException {
+        Account after = accounts.findOwned(connection, before.customerId(), before.accountId()).orElse(null);
+        if (after == null || after.customerId() != before.customerId() || after.accountId() != before.accountId()
+                || !after.number().equals(before.number()) || after.type() != before.type()
+                || after.status() != AccountStatus.ACTIVE || !after.balance().equals(expected))
+            throw new SQLException("Balance read-back did not match.");
+    }
+
     private static boolean rollback(Connection connection) {
         if (connection == null) return true;
         try { connection.rollback(); return true; }
@@ -221,8 +294,11 @@ public final class TransactionService {
     }
 
     private static FinancialOperationException failure(TransactionType type, String message, TransactionReference reference) {
-        return type == TransactionType.WITHDRAWAL
-                ? new WithdrawalException(message, reference) : new DepositException(message, reference);
+        return switch (type) {
+            case WITHDRAWAL -> new WithdrawalException(message, reference);
+            case TRANSFER -> new TransferException(message, reference);
+            default -> new DepositException(message, reference);
+        };
     }
 
     private static final class Rejected extends RuntimeException {

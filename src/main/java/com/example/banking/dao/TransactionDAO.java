@@ -8,4 +8,5 @@ import java.sql.SQLException;
 public interface TransactionDAO {
     void insertDeposit(Connection connection, BankTransaction transaction) throws SQLException;
     void insertWithdrawal(Connection connection, BankTransaction transaction) throws SQLException;
+    void insertTransfer(Connection connection, BankTransaction transaction) throws SQLException;
 }

@@ -6,6 +6,7 @@ import com.example.banking.dao.TransactionAuditDAO;
 import com.example.banking.dao.jdbc.JdbcSecurityAuditDAO;
 import com.example.banking.dao.jdbc.JdbcAccountDAO;
 import com.example.banking.dao.jdbc.JdbcTransactionDAO;
+import com.example.banking.dao.jdbc.JdbcTransactionHistoryDAO;
 import com.example.banking.dao.jdbc.JdbcTransactionAuditDAO;
 import com.example.banking.exception.*;
 import com.example.banking.model.*;
@@ -45,6 +46,7 @@ public final class AuthService {
     private final PasswordChangeService passwordChanges;
     private final AccountService accountService;
     private final TransactionService transactions;
+    private final HistoryService history;
     private PasswordChangeUnconfirmedException pendingPasswordChange;
     private Customer currentCustomer;
     private LoginAuditDelivery.Result pendingAudit;
@@ -97,6 +99,8 @@ public final class AuthService {
                 customers, new JdbcTransactionDAO(queryTimeout), financialAudit, this::currentCustomer,
                 () -> new TransactionReference(referenceGenerator.generateTransactionReference()),
                 clock, maximumDeposit, queryTimeout);
+        this.history = new HistoryService(connections, new JdbcAccountDAO(queryTimeout), customers,
+                new JdbcTransactionHistoryDAO(queryTimeout), this::currentCustomer, queryTimeout);
         char[] dummy = "Not-A-Real-Account-1!".toCharArray();
         try {
             dummyHash = passwords.hash(dummy);
@@ -274,7 +278,15 @@ public final class AuthService {
         return transactions.withdraw(accountId, amount);
     }
 
-    /** Legacy name: the single pending slot guards both deposits and withdrawals. */
+    public TransferReceipt transfer(long sourceId, String destinationNumber, String amount) {
+        return transactions.transfer(sourceId, destinationNumber, amount);
+    }
+
+    public HistoryPage history(long accountId, HistoryQuery query) {
+        return history.page(accountId, query);
+    }
+
+    /** Legacy name: the single pending slot guards all ordinary money operations. */
     public Optional<TransactionService.PendingDeposit> pendingDeposit() { return transactions.pending(); }
 
     public Customer currentCustomer() {

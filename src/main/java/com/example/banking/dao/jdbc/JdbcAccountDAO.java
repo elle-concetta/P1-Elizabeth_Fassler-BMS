@@ -10,6 +10,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /** Prepared owner-scoped SQL. Caller owns locks, transactions and ledger pairing. */
 public final class JdbcAccountDAO implements AccountDAO {
@@ -80,6 +81,38 @@ public final class JdbcAccountDAO implements AccountDAO {
     @Override
     public Optional<Account> lockOwned(Connection connection, long owner, long id) throws SQLException {
         return findOne(connection, owner, id, true);
+    }
+
+    @Override
+    public OptionalLong findDestinationId(Connection connection, AccountNumber number) throws SQLException {
+        if (number == null) throw new IllegalArgumentException("Destination number is required.");
+        try (var query = connection.prepareStatement("SELECT account_id FROM accounts WHERE account_number = ?")) {
+            query.setQueryTimeout(timeout);
+            query.setString(1, number.value());
+            try (var rows = query.executeQuery()) {
+                if (!rows.next()) return OptionalLong.empty();
+                long id = rows.getLong(1);
+                if (id <= 0 || rows.wasNull() || rows.next())
+                    throw new SQLException("Destination routing was not unique and valid.");
+                return OptionalLong.of(id);
+            }
+        }
+    }
+
+    @Override
+    public Optional<Account> lockDestination(Connection connection, long id) throws SQLException {
+        AccountValidator.accountId(id);
+        try (var query = connection.prepareStatement("""
+                SELECT account_id, customer_id, account_number, account_type, balance,
+                       interest_rate, minimum_balance, opening_date, status
+                FROM accounts WHERE account_id = ? FOR UPDATE
+                """)) {
+            query.setQueryTimeout(timeout);
+            query.setLong(1, id);
+            try (var rows = query.executeQuery()) {
+                return rows.next() ? Optional.of(map(rows)) : Optional.empty();
+            }
+        }
     }
 
     private Optional<Account> findOne(Connection connection, long owner, long id, boolean lock) throws SQLException {

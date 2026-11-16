@@ -8,7 +8,7 @@ import java.sql.*;
 import java.util.Calendar;
 import java.util.TimeZone;
 
-/** Writes validated deposit/withdrawal shapes; primary writer session must be UTC. */
+/** Writes validated ordinary ledger shapes; primary writer session must be UTC. */
 public final class JdbcTransactionDAO implements TransactionDAO {
     private final int timeout;
     public JdbcTransactionDAO(int timeout) {
@@ -24,6 +24,31 @@ public final class JdbcTransactionDAO implements TransactionDAO {
     @Override
     public void insertWithdrawal(Connection connection, BankTransaction tx) throws SQLException {
         insert(connection, tx, TransactionType.WITHDRAWAL);
+    }
+
+    @Override
+    public void insertTransfer(Connection connection, BankTransaction tx) throws SQLException {
+        if (tx == null || tx.type() != TransactionType.TRANSFER || !TransactionValidator.supportedTime(tx.createdAt()))
+            throw new IllegalArgumentException("Ledger shape/time is unsupported; no write attempted.");
+        try (var query = connection.prepareStatement("""
+                INSERT INTO transactions (reference_number, source_account_id, destination_account_id,
+                    transaction_type, amount, status, description, source_balance_before,
+                    dest_balance_before, source_balance_after, dest_balance_after, created_at)
+                VALUES (?, ?, ?, 'TRANSFER', ?, 'SUCCESS', NULL, ?, ?, ?, ?, ?)
+                """)) {
+            query.setQueryTimeout(timeout);
+            query.setString(1, tx.reference().value());
+            query.setLong(2, tx.sourceId());
+            query.setLong(3, tx.destinationId());
+            query.setBigDecimal(4, tx.amount().toBigDecimal());
+            query.setBigDecimal(5, tx.balanceBefore().toBigDecimal());
+            query.setBigDecimal(6, tx.destinationBalanceBefore().toBigDecimal());
+            query.setBigDecimal(7, tx.balanceAfter().toBigDecimal());
+            query.setBigDecimal(8, tx.destinationBalanceAfter().toBigDecimal());
+            query.setTimestamp(9, Timestamp.from(tx.createdAt()),
+                    Calendar.getInstance(TimeZone.getTimeZone("UTC")));
+            if (query.executeUpdate() != 1) throw new SQLException("Ledger insert was not confirmed.");
+        }
     }
 
     private void insert(Connection connection, BankTransaction tx, TransactionType expected) throws SQLException {

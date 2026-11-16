@@ -23,7 +23,8 @@ public final class AccountMenu {
             auth.currentCustomer();
             input.println("\nMY ACCOUNTS\n1. Open Savings account (zero balance)"
                     + "\n2. Open Current account (zero balance)\n3. List my accounts"
-                    + "\n4. View account balance/details\n5. Deposit money\n6. Withdraw money\n0. Back to customer menu");
+                    + "\n4. View account balance/details\n5. Deposit money\n6. Withdraw money"
+                    + "\n7. Transfer money\n8. Transaction history\n0. Back to customer menu");
             try {
                 String choice = input.text("Choice: ", 10);
                 if (choice == null || choice.equals("0")) return;
@@ -34,7 +35,9 @@ public final class AccountMenu {
                     case "4" -> details();
                     case "5" -> money(false);
                     case "6" -> money(true);
-                    default -> input.println("Choose 0, 1, 2, 3, 4, 5 or 6.");
+                    case "7" -> transfer();
+                    case "8" -> new HistoryMenu(auth, input).run(readAccountId());
+                    default -> input.println("Choose 0, 1, 2, 3, 4, 5, 6, 7 or 8.");
                 }
             } catch (ConsoleInput.Cancelled cancelled) {
                 input.println("Account action cancelled.");
@@ -100,6 +103,34 @@ public final class AccountMenu {
         input.println("Account ID: " + receipt.accountId() + " | Number: " + receipt.number().masked());
         input.println((withdrawal ? "Withdrawn: " : "Deposited: ") + receipt.amount() + " | Balance before: " + receipt.balanceBefore()
                 + " | Balance after: " + receipt.balanceAfter());
+    }
+
+    private void transfer() {
+        input.println("Transfer from your owned account. Recipient may be another customer.");
+        long sourceId = readAccountId();
+        char[] raw = input.password("Recipient's full 24-digit account number (hidden; /cancel to return): ");
+        String destination;
+        try {
+            if (raw.length > com.example.banking.model.AccountNumber.LENGTH)
+                throw new ValidationException("Enter a valid 24-digit recipient account number.");
+            destination = new String(raw);
+            if (destination.equals("/cancel")) throw new ConsoleInput.Cancelled();
+        } finally {
+            java.util.Arrays.fill(raw, '\0');
+        }
+        String amount = input.field("Transfer amount (plain decimal, at most two decimal places)", 40);
+        String confirmation = input.field("Type TRANSFER to submit (Enter cancels)", 10);
+        if (!confirmation.equals("TRANSFER")) {
+            input.println("Transfer cancelled. No money was changed.");
+            return;
+        }
+        var receipt = auth.transfer(sourceId, destination, amount);
+        input.println("Transfer complete.");
+        input.println("Reference: " + receipt.reference().value());
+        input.println("Source account ID: " + receipt.sourceId() + " | Number: " + receipt.sourceNumber().masked());
+        input.println("Recipient: " + receipt.destinationNumber().masked());
+        input.println("Transferred: " + receipt.amount() + " | Source balance before: " + receipt.sourceBalanceBefore()
+                + " | Source balance after: " + receipt.sourceBalanceAfter());
     }
 
     private void display(Account account) {
