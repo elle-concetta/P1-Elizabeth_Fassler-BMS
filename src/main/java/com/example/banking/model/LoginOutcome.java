@@ -12,3 +12,4 @@ public enum LoginOutcome {
     TIMEOUT,
     LOGOUT
 }
+

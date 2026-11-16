@@ -62,7 +62,7 @@ class LoginOutcomeTest {
     @Test
     void namesFitTheRequiredNonNullSqlColumn() throws IOException {
         Matcher column = Pattern.compile(
-                "(?i)\\boutcome\\s+VARCHAR\\s*\\(\\s*(\\d+)\\s*\\)\\s+NOT\\s+NULL")
+                        "(?i)\\boutcome\\s+VARCHAR\\s*\\(\\s*(\\d+)\\s*\\)\\s+NOT\\s+NULL")
                 .matcher(loginAuditDefinition());
         assertTrue(column.find(), "Missing login_audit.outcome VARCHAR NOT NULL");
         int width = Integer.parseInt(column.group(1));
@@ -74,8 +74,8 @@ class LoginOutcomeTest {
     @Test
     void persistedNamesMatchTheLoginAuditCheckExactly() throws IOException {
         Matcher constraint = Pattern.compile(
-                "(?i)\\bCONSTRAINT\\s+chk_audit_outcome\\s+CHECK\\s*"
-                        + "\\(\\s*outcome\\s+IN\\s*\\(([^)]*)\\)\\s*\\)")
+                        "(?i)\\bCONSTRAINT\\s+chk_audit_outcome\\s+CHECK\\s*"
+                                + "\\(\\s*outcome\\s+IN\\s*\\(([^)]*)\\)\\s*\\)")
                 .matcher(loginAuditDefinition());
         assertTrue(constraint.find(), "Missing login audit outcome CHECK");
         Set<String> sqlNames = Pattern.compile("'([^']*)'")
@@ -101,7 +101,7 @@ class LoginOutcomeTest {
                 .replaceAll("(?s)/\\*.*?\\*/", "")
                 .replaceAll("(?m)--[^\\r\\n]*", "");
         Matcher table = Pattern.compile(
-                "(?is)CREATE\\s+TABLE\\s+login_audit\\s*\\((.*?)\\)\\s*ENGINE\\s*=")
+                        "(?is)CREATE\\s+TABLE\\s+login_audit\\s*\\((.*?)\\)\\s*ENGINE\\s*=")
                 .matcher(sql);
         assertTrue(table.find(), "Missing login_audit reference table");
         return table.group(1);

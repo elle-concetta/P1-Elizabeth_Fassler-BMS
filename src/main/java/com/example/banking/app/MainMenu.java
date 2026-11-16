@@ -25,10 +25,11 @@ public final class MainMenu {
             try {
                 if (auth.pendingDeposit().isPresent()) {
                     var pending = auth.pendingDeposit().orElseThrow();
-                    input.println("DEPOSIT RECONCILIATION REQUIRED. Authentication is blocked.");
+                    input.println(pending.evidence().eventType()
+                            + " RECONCILIATION REQUIRED. Authentication is blocked.");
                     input.println("Reference: " + pending.evidence().referenceNumber().orElseThrow().value());
                     input.println("Keep this process open and ask an administrator to reconcile. "
-                            + "Evidence is only in memory; exiting loses it. Do not restart or repeat the deposit.");
+                            + "Evidence is only in memory; exiting loses it. Do not restart or repeat the money operation.");
                     String exit = input.text("Type EXIT to acknowledge evidence loss and close: ", 10);
                     if (exit == null || exit.equals("EXIT")) return;
                     continue;

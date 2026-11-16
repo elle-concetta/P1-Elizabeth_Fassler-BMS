@@ -9,6 +9,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * Deliberately narrow, opt-in test harness. Never reads DB_* or executes the
@@ -16,19 +17,6 @@ import java.util.Properties;
  */
 public final class LoginAuditTestDatabase implements AutoCloseable {
     public static final String APPROVAL = "CREATE_LOGIN_AUDIT_FIXTURES_IN_BANKING_TEST";
-    /** Fixed protocol choices; DEFAULT leaves Connector/J's existing behavior alone. */
-    enum PreparedStatements {
-        DEFAULT(null),
-        CLIENT("false"),
-        SERVER("true");
-
-        final String useServerPrepStmts;
-
-        PreparedStatements(String useServerPrepStmts) {
-            this.useServerPrepStmts = useServerPrepStmts;
-        }
-    }
-
     /**
      * Fixed test-only options, not user-supplied JDBC properties. In particular,
      * none can override the guarded URL, credentials, catalog or timeouts.
@@ -38,25 +26,55 @@ public final class LoginAuditTestDatabase implements AutoCloseable {
         LOCAL_WEST("LOCAL", "-07:00"),
         SERVER_EAST("SERVER", "+09:00"),
         TOKYO_WEST("Asia/Tokyo", "-07:00"),
-        LOS_ANGELES_EAST("America/Los_Angeles", "+09:00"),
-        // Numeric offsets need no MySQL zone tables. Do not set sessionVariables
-        // for these profiles: Connector/J itself must establish the session zone.
-        FORCED_WEST("-07:00", "-07:00", true),
-        FORCED_EAST("+09:00", "+09:00", true);
+        LOS_ANGELES_EAST("America/Los_Angeles", "+09:00");
 
         final String connectionTimeZone;
         final String sessionTimeZone;
-        final boolean forceConnectionTimeZoneToSession;
 
         DriverTimeZones(String connectionTimeZone, String sessionTimeZone) {
-            this(connectionTimeZone, sessionTimeZone, false);
-        }
-
-        DriverTimeZones(String connectionTimeZone, String sessionTimeZone,
-                        boolean forceConnectionTimeZoneToSession) {
             this.connectionTimeZone = connectionTimeZone;
             this.sessionTimeZone = sessionTimeZone;
-            this.forceConnectionTimeZoneToSession = forceConnectionTimeZoneToSession;
+        }
+    }
+
+    /**
+     * Read-only expectations for separately provisioned servers, never SQL to
+     * change their modes. Omit the setting for existing non-matrix suites.
+     */
+    enum SqlModeProfile {
+        DEFAULT_STRICT(Set.of("ONLY_FULL_GROUP_BY", "STRICT_TRANS_TABLES",
+                "NO_ZERO_IN_DATE", "NO_ZERO_DATE", "ERROR_FOR_DIVISION_BY_ZERO",
+                "NO_ENGINE_SUBSTITUTION")),
+        PERMISSIVE(Set.of()),
+        TRUNCATE_FRACTIONAL(Set.of("TIME_TRUNCATE_FRACTIONAL"));
+
+        private final Set<String> modes;
+
+        SqlModeProfile(Set<String> modes) {
+            this.modes = modes;
+        }
+
+        boolean matches(String actual) {
+            return actual != null && modes.equals(actual.isEmpty()
+                    ? Set.of() : Set.copyOf(java.util.Arrays.asList(actual.split(",", -1))));
+        }
+
+        static SqlModeProfile from(Map<String, String> settings) {
+            String profile = settings.get("LOGIN_AUDIT_IT_SQL_MODE_PROFILE");
+            return profile == null ? null : valueOf(profile);
+        }
+
+        void verify(Connection connection) throws SQLException {
+            try (var statement = connection.createStatement();
+                 var rows = statement.executeQuery(
+                         "SELECT VERSION(), @@global.sql_mode, @@session.sql_mode")) {
+                if (!rows.next() || !rows.getString(1).startsWith("8.4.")
+                        || !matches(rows.getString(2)) || !matches(rows.getString(3))) {
+                    throw new IllegalStateException(
+                            "Expected MySQL 8.4 with startup SQL mode profile " + name()
+                                    + "; neither global nor session modes were changed.");
+                }
+            }
         }
     }
 
@@ -80,6 +98,7 @@ public final class LoginAuditTestDatabase implements AutoCloseable {
         if (settings.getOrDefault("TEST_DB_PASSWORD", "").isBlank()) {
             throw new IllegalArgumentException("TEST_DB_PASSWORD is required; no application fallback exists.");
         }
+        SqlModeProfile.from(settings); // Reject typos and arbitrary SQL before connecting.
     }
 
     public LoginAuditTestDatabase(Map<String, String> settings) {
@@ -87,14 +106,9 @@ public final class LoginAuditTestDatabase implements AutoCloseable {
     }
 
     LoginAuditTestDatabase(Map<String, String> settings, DriverTimeZones timeZones) {
-        this(settings, timeZones, PreparedStatements.DEFAULT);
-    }
-
-    LoginAuditTestDatabase(Map<String, String> settings, DriverTimeZones timeZones,
-                           PreparedStatements preparedStatements) {
         validateSettings(settings);
         java.util.Objects.requireNonNull(timeZones);
-        java.util.Objects.requireNonNull(preparedStatements);
+        SqlModeProfile sqlModeProfile = SqlModeProfile.from(settings);
         factory = new ConnectionFactory(settings.get("TEST_DB_URL"),
                 settings.get("TEST_DB_USERNAME"), settings.get("TEST_DB_PASSWORD"),
                 (url, credentials) -> {
@@ -102,22 +116,17 @@ public final class LoginAuditTestDatabase implements AutoCloseable {
                     properties.putAll(credentials);
                     properties.setProperty("connectTimeout", "5000");
                     properties.setProperty("socketTimeout", "10000");
-                    if (preparedStatements != PreparedStatements.DEFAULT) {
-                        properties.setProperty("useServerPrepStmts",
-                                preparedStatements.useServerPrepStmts);
-                    }
                     if (timeZones != DriverTimeZones.DEFAULT) {
                         properties.setProperty("connectionTimeZone", timeZones.connectionTimeZone);
-                        if (timeZones.forceConnectionTimeZoneToSession) {
-                            properties.setProperty("forceConnectionTimeZoneToSession", "true");
-                        } else {
-                            properties.setProperty("sessionVariables",
-                                    "time_zone='" + timeZones.sessionTimeZone + "'");
-                        }
+                        properties.setProperty("sessionVariables",
+                                "time_zone='" + timeZones.sessionTimeZone + "'");
                     }
                     Connection connection = DriverManager.getConnection(url, properties);
                     try {
                         verifyTarget(connection);
+                        if (sqlModeProfile != null) {
+                            sqlModeProfile.verify(connection);
+                        }
                         try (var statement = connection.createStatement()) {
                             statement.execute("SET SESSION innodb_lock_wait_timeout = 3");
                         }
@@ -142,21 +151,13 @@ public final class LoginAuditTestDatabase implements AutoCloseable {
         try (var statement = connection.createStatement();
              var rows = statement.executeQuery("SHOW GRANTS")) {
             while (rows.next()) {
-                validateGrant(rows.getString(1));
+                String grant = rows.getString(1);
+                if (!(grant.startsWith("GRANT USAGE ON *.* TO ")
+                        || grant.matches("GRANT .+ ON `banking_test`\\.\\* TO .+"))
+                        || grant.contains("WITH GRANT OPTION")) {
+                    throw new IllegalStateException("Test principal must have banking_test-only privileges.");
+                }
             }
-        }
-    }
-
-    /** Checks raw SHOW GRANTS text, not a client's quoted/exported rendering. */
-    public static void validateGrant(String grant) {
-        boolean testDatabaseGrant = grant != null
-                && (grant.matches("GRANT .+ ON `banking_test`\\.\\* TO .+")
-                || grant.matches("GRANT .+ ON "
-                + java.util.regex.Pattern.quote("`banking\\_test`") + "\\.\\* TO .+"));
-        if (grant == null
-                || (!(grant.startsWith("GRANT USAGE ON *.* TO ") || testDatabaseGrant))
-                || grant.contains("WITH GRANT OPTION")) {
-            throw new IllegalStateException("Test principal must have banking_test-only privileges.");
         }
     }
 
@@ -199,6 +200,8 @@ public final class LoginAuditTestDatabase implements AutoCloseable {
         return schema.substring(start, end);
     }
 
+    // The guarded disposable schema need not exist in the IDE's data sources.
+    @SuppressWarnings("SqlResolve")
     @Override
     public void close() throws SQLException {
         if (!auditCreated && !customersCreated) {

@@ -93,4 +93,3 @@ class PasswordChangeCliTest {
     }
     private void cleared(char[] value) { for (char c : value) assertEquals('\0', c); }
 }
-

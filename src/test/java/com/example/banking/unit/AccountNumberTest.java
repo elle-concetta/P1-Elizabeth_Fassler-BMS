@@ -92,4 +92,15 @@ class AccountNumberTest {
         assertFalse(number.toString().contains(VALID));
         assertEquals(VALID, number.value());
     }
+
+    @Test
+    void customerDisplayShowsOnlyLastFourAndDoesNotChangeIdentity() {
+        AccountNumber first = new AccountNumber(VALID);
+        AccountNumber second = AccountNumber.fromPayload("99999978901234567890123");
+        assertEquals("****1234", first.masked());
+        assertTrue(first.masked().matches("\\*{4}[0-9]{4}"));
+        assertEquals("****" + second.value().substring(20), second.masked());
+        assertNotEquals(first, second);
+        assertEquals(VALID, first.value());
+    }
 }

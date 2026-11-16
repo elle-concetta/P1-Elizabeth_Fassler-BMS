@@ -10,3 +10,4 @@ public final class SavingsAccount extends Account {
         super(id, owner, number, AccountType.SAVINGS, balance, rate, minimum, opened, status);
     }
 }
+

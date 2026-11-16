@@ -107,4 +107,3 @@ class PasswordChangeAuthTest {
                 "Replacement-Pass-2!".toCharArray());
     }
 }
-

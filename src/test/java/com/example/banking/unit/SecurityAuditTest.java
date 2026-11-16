@@ -63,4 +63,3 @@ class SecurityAuditTest {
                 SecurityAuditEvent.Outcome.LOCKED, "ACCOUNT_UNAVAILABLE", now));
     }
 }
-

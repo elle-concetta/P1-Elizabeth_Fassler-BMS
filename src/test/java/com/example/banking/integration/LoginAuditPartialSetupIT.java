@@ -98,7 +98,7 @@ class LoginAuditPartialSetupIT {
 
     private static void assertSafeRunnerWithoutReferences(LoginAuditTestDatabase database) throws Exception {
         try (Connection runner = database.open(); var statement = runner.createStatement()) {
-            // MySQL 8 supports CURRENT_ROLE(); some editor SQL catalogs do not resolve it.
+            // MySQL 8 CURRENT_ROLE() is valid even when IDE metadata cannot resolve it.
             //noinspection SqlResolve
             try (var rows = statement.executeQuery("SELECT DATABASE(), CURRENT_USER(), CURRENT_ROLE()")) {
                 assertTrue(rows.next());

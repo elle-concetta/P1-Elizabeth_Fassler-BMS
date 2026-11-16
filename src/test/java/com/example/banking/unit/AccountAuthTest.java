@@ -90,4 +90,3 @@ class AccountAuthTest {
         clearInvocations(connections, customers);
     }
 }
-

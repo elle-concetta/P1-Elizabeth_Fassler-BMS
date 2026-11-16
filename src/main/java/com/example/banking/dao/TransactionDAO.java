@@ -7,4 +7,5 @@ import java.sql.SQLException;
 /** Ledger insertion shares the caller's money transaction; never commits independently. */
 public interface TransactionDAO {
     void insertDeposit(Connection connection, BankTransaction transaction) throws SQLException;
+    void insertWithdrawal(Connection connection, BankTransaction transaction) throws SQLException;
 }

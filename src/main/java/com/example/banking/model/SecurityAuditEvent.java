@@ -29,4 +29,3 @@ public record SecurityAuditEvent(UUID eventId, long customerId, Outcome outcome,
 
     @Override public String toString() { return "SecurityAuditEvent[REDACTED]"; }
 }
-

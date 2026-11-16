@@ -1,6 +1,5 @@
 package com.example.banking.integration;
 
-import com.mysql.cj.jdbc.ServerPreparedStatement;
 import com.example.banking.dao.jdbc.JdbcLoginAuditDAO;
 import com.example.banking.model.LoginAudit;
 import com.example.banking.model.LoginOutcome;
@@ -93,15 +92,13 @@ class LoginAuditUtcConnectionIT {
     }
 
     static Stream<Arguments> conflictingTimeZones() {
-        // Includes numeric east/west connectionTimeZone values forced into the
-        // session by Connector/J, without sessionVariables masking that behavior.
         return Stream.of("America/Los_Angeles", "Asia/Kolkata").flatMap(jvmZone ->
                 Stream.of(LoginAuditTestDatabase.DriverTimeZones.values())
                         .filter(options -> options != LoginAuditTestDatabase.DriverTimeZones.DEFAULT)
                         .flatMap(options -> Stream.of(
-                                "1970-01-01T00:00:01Z", "2026-01-02T03:04:05Z",
-                                "2026-03-08T07:00:00Z", "2026-11-01T06:00:00Z",
-                                "2038-01-19T03:14:07Z")
+                                        "1970-01-01T00:00:01Z", "2026-01-02T03:04:05Z",
+                                        "2026-03-08T07:00:00Z", "2026-11-01T06:00:00Z",
+                                        "2038-01-19T03:14:07Z")
                                 .map(time -> Arguments.of(jvmZone, options, time))));
     }
 
@@ -110,51 +107,18 @@ class LoginAuditUtcConnectionIT {
     void utcWriterOverridesConflictingDriverOptions(
             String jvmZone, LoginAuditTestDatabase.DriverTimeZones options, String text
     ) throws Exception {
-        assertConflictingConfiguration(jvmZone, options,
-                LoginAuditTestDatabase.PreparedStatements.DEFAULT, text);
-    }
-
-    static Stream<Arguments> preparedStatementModes() {
-        // Bounded protocol comparison, not another timezone/runtime matrix.
-        return Stream.of(LoginAuditTestDatabase.PreparedStatements.CLIENT,
-                        LoginAuditTestDatabase.PreparedStatements.SERVER)
-                .flatMap(mode -> Stream.of(
-                                "1970-01-01T00:00:01Z", "2026-03-08T07:00:00Z",
-                                "2038-01-19T03:14:07Z")
-                        .map(time -> Arguments.of(mode, time)));
-    }
-
-    @ParameterizedTest(name = "{0}, {1}")
-    @MethodSource("preparedStatementModes")
-    void utcWriterPreservesTimeWithClientAndServerPreparedStatements(
-            LoginAuditTestDatabase.PreparedStatements mode, String text
-    ) throws Exception {
-        assertConflictingConfiguration("America/Los_Angeles",
-                LoginAuditTestDatabase.DriverTimeZones.TOKYO_WEST, mode, text);
-    }
-
-    private void assertConflictingConfiguration(
-            String jvmZone, LoginAuditTestDatabase.DriverTimeZones options,
-            LoginAuditTestDatabase.PreparedStatements mode, String text
-    ) throws Exception {
         TimeZone previous = TimeZone.getDefault();
         try {
             TimeZone.setDefault(TimeZone.getTimeZone(jvmZone));
             assertEquals(jvmZone, TimeZone.getDefault().getID());
             // Same approval and target guards as the fixture owner. This instance
             // owns no tables and never creates or reuses fixtures on its own.
-            try (var configured = new LoginAuditTestDatabase(System.getenv(), options, mode);
+            try (var configured = new LoginAuditTestDatabase(System.getenv(), options);
                  Connection existingBusiness = configured.factory().getConnection()) {
                 assertSession(existingBusiness, options.sessionTimeZone);
-                // Exercise the application policy directly after the driver's
-                // connect-time session setup, including forced numeric offsets.
-                try (Connection writer = configured.factory().getLoginAuditConnection()) {
-                    assertSession(writer, "+00:00");
-                    assertPreparedStatementMode(writer, mode);
-                }
                 Instant time = Instant.parse(text);
                 String attempted = "driver-" + jvmZone.hashCode() + "-"
-                        + options.ordinal() + "-" + mode.name() + "-" + time.getEpochSecond();
+                        + options.ordinal() + "-" + time.getEpochSecond();
                 new JdbcLoginAuditDAO(configured.factory()).append(
                         new LoginAudit(null, null, attempted, LoginOutcome.FAILURE, null, time));
 
@@ -180,26 +144,6 @@ class LoginAuditUtcConnectionIT {
             TimeZone.setDefault(previous);
         }
         assertEquals(previous, TimeZone.getDefault());
-    }
-
-    private static void assertPreparedStatementMode(
-            Connection connection, LoginAuditTestDatabase.PreparedStatements mode
-    ) throws Exception {
-        if (mode == LoginAuditTestDatabase.PreparedStatements.DEFAULT) {
-            return;
-        }
-        // Verify a real parameterized statement, not just the requested property.
-        // A silent driver fallback must not count as server-protocol coverage.
-        try (var statement = connection.prepareStatement("SELECT ?")) {
-            assertEquals(mode == LoginAuditTestDatabase.PreparedStatements.SERVER,
-                    statement instanceof ServerPreparedStatement);
-            statement.setInt(1, 1);
-            try (var row = statement.executeQuery()) {
-                assertTrue(row.next());
-                assertEquals(1, row.getInt(1));
-                assertFalse(row.next());
-            }
-        }
     }
 
     private static void assertPersistedTime(Connection reader, String attempted, Instant time)

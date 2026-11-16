@@ -91,4 +91,3 @@ class DepositAuthTest {
         clearInvocations(connections, customers, financialAudit);
     }
 }
-

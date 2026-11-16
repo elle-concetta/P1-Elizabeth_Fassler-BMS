@@ -68,4 +68,3 @@ class AccountModelTest {
         return new SavingsAccount(7, 1, NUMBER, balance, rate, minimum, opened, AccountStatus.ACTIVE);
     }
 }
-

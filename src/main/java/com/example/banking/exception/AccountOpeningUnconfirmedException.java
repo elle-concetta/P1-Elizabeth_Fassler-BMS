@@ -7,3 +7,4 @@ public final class AccountOpeningUnconfirmedException extends BankingException {
                 + "List your accounts and ask an administrator to reconcile the result.");
     }
 }
+

@@ -3,7 +3,7 @@ package com.example.banking.app;
 import com.example.banking.exception.AccountOpeningUnconfirmedException;
 import com.example.banking.exception.PersistenceException;
 import com.example.banking.exception.ValidationException;
-import com.example.banking.exception.DepositException;
+import com.example.banking.exception.FinancialOperationException;
 import com.example.banking.model.Account;
 import com.example.banking.model.AccountType;
 import com.example.banking.service.AuthService;
@@ -23,7 +23,7 @@ public final class AccountMenu {
             auth.currentCustomer();
             input.println("\nMY ACCOUNTS\n1. Open Savings account (zero balance)"
                     + "\n2. Open Current account (zero balance)\n3. List my accounts"
-                    + "\n4. View account balance/details\n5. Deposit money\n0. Back to customer menu");
+                    + "\n4. View account balance/details\n5. Deposit money\n6. Withdraw money\n0. Back to customer menu");
             try {
                 String choice = input.text("Choice: ", 10);
                 if (choice == null || choice.equals("0")) return;
@@ -32,12 +32,13 @@ public final class AccountMenu {
                     case "2" -> open(AccountType.CURRENT);
                     case "3" -> list();
                     case "4" -> details();
-                    case "5" -> deposit();
-                    default -> input.println("Choose 0, 1, 2, 3, 4 or 5.");
+                    case "5" -> money(false);
+                    case "6" -> money(true);
+                    default -> input.println("Choose 0, 1, 2, 3, 4, 5 or 6.");
                 }
             } catch (ConsoleInput.Cancelled cancelled) {
                 input.println("Account action cancelled.");
-            } catch (DepositException failure) {
+            } catch (FinancialOperationException failure) {
                 if (auth.pendingDeposit().isPresent()) throw failure;
                 input.println(failure.getMessage());
             } catch (ValidationException | PersistenceException | AccountOpeningUnconfirmedException safe) {
@@ -83,19 +84,21 @@ public final class AccountMenu {
         return id;
     }
 
-    private void deposit() {
+    private void money(boolean withdrawal) {
+        String operation = withdrawal ? "Withdrawal" : "Deposit";
+        String confirmationWord = withdrawal ? "WITHDRAW" : "DEPOSIT";
         long id = readAccountId();
-        String amount = input.field("Deposit amount (plain decimal, at most two decimal places)", 40);
-        String confirmation = input.field("Type DEPOSIT to submit (Enter cancels)", 10);
-        if (!confirmation.equals("DEPOSIT")) {
-            input.println("Deposit cancelled. No money was changed.");
+        String amount = input.field(operation + " amount (plain decimal, at most two decimal places)", 40);
+        String confirmation = input.field("Type " + confirmationWord + " to submit (Enter cancels)", 10);
+        if (!confirmation.equals(confirmationWord)) {
+            input.println(operation + " cancelled. No money was changed.");
             return;
         }
-        var receipt = auth.deposit(id, amount);
-        input.println("Deposit complete.");
+        var receipt = withdrawal ? auth.withdraw(id, amount) : auth.deposit(id, amount);
+        input.println(operation + " complete.");
         input.println("Reference: " + receipt.reference().value());
-        input.println("Account ID: " + receipt.destinationId() + " | Number: " + receipt.number().masked());
-        input.println("Deposited: " + receipt.amount() + " | Balance before: " + receipt.balanceBefore()
+        input.println("Account ID: " + receipt.accountId() + " | Number: " + receipt.number().masked());
+        input.println((withdrawal ? "Withdrawn: " : "Deposited: ") + receipt.amount() + " | Balance before: " + receipt.balanceBefore()
                 + " | Balance after: " + receipt.balanceAfter());
     }
 

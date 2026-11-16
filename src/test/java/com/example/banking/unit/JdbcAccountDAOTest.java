@@ -142,4 +142,3 @@ class JdbcAccountDAOTest {
         assertThrows(SQLException.class, () -> dao.findOwned(connection, 1, 7));
     }
 }
-

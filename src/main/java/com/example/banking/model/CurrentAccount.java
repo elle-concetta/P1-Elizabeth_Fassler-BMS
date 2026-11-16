@@ -10,3 +10,4 @@ public final class CurrentAccount extends Account {
         super(id, owner, number, AccountType.CURRENT, balance, rate, minimum, opened, status);
     }
 }
+

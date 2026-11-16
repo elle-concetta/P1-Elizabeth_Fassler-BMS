@@ -11,3 +11,4 @@ public record Registration(String firstName, String middleInitial, String lastNa
         return "Registration[REDACTED]";
     }
 }
+

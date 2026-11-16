@@ -220,4 +220,3 @@ class AccountServiceTest {
         assertThrows(PersistenceException.class, () -> service.open(AccountType.SAVINGS));
     }
 }
-

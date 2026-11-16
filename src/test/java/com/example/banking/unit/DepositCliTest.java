@@ -102,4 +102,3 @@ class DepositCliTest {
         catch (IOException failure) { throw new AssertionError(failure); }
     }
 }
-

@@ -1,29 +1,25 @@
 package com.example.banking.unit;
 
 import com.example.banking.app.CliPresentation;
-import com.example.banking.model.AccountNumber;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class CliPresentationTest {
     @Test
-    void bannerIsAsciiAndHasAlignedBordersAndPasswordGuidance() {
-        String banner = CliPresentation.welcome();
-        assertTrue(banner.chars().allMatch(c -> c < 128));
-        assertTrue(banner.contains("S E C U R E   B A N K I N G"));
-        assertTrue(banner.contains("Passwords are hidden"));
-        for (String line : banner.split("\n")) {
-            if (line.startsWith("|") || line.startsWith("+")) {
-                assertEquals(62, line.length());
-            }
+    void welcomeUsesAlignedAsciiWithoutColorsClearingOrConnectionClaims() {
+        String welcome = CliPresentation.welcome();
+        String[] lines = welcome.split("\n");
+        assertEquals("+" + "-".repeat(60) + "+", lines[0]);
+        for (int i = 1; i <= 12; i++) {
+            assertEquals(62, lines[i].length());
+            assertTrue(lines[i].startsWith("|") && lines[i].endsWith("|"));
         }
-    }
-
-    @Test
-    void accountPresentationShowsOnlyTheLastFourDigits() {
-        var account = AccountNumber.fromPayload("12345678901234567890123");
-        assertEquals("****" + account.value().substring(20), account.masked());
-        assertFalse(account.toString().contains(account.value()));
+        assertEquals(lines[0], lines[13]);
+        assertTrue(welcome.contains("S E C U R E   B A N K I N G"));
+        assertTrue(welcome.contains("Passwords are hidden"));
+        assertTrue(welcome.chars().allMatch(c -> c == '\n' || (c >= 32 && c <= 126)));
+        assertFalse(welcome.contains("\u001b"));
+        assertFalse(welcome.toLowerCase().contains("connected"));
     }
 }

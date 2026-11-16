@@ -24,34 +24,22 @@ class LoginAuditDatabaseGuardTest {
     }
 
     @Test
-    void acceptsRawEscapedTestDatabaseGrantAndExistingSpellings() {
-        for (String grant : new String[]{
-                "GRANT USAGE ON *.* TO `banking_test_runner`@`localhost`",
-                "GRANT SELECT, INSERT, CREATE, DROP, REFERENCES ON `banking\\_test`.* TO `banking_test_runner`@`localhost`",
-                "GRANT SELECT ON `banking_test`.* TO `banking_test_runner`@`localhost`"}) {
-            assertDoesNotThrow(() -> LoginAuditTestDatabase.validateGrant(grant));
+    void acceptsOnlyFixedSqlModeProfilesWithoutChangingTargetGuards() {
+        for (String profile : new String[]{"DEFAULT_STRICT", "PERMISSIVE", "TRUNCATE_FRACTIONAL"}) {
+            var settings = valid();
+            settings.put("LOGIN_AUDIT_IT_SQL_MODE_PROFILE", profile);
+            assertDoesNotThrow(() -> LoginAuditTestDatabase.validateSettings(settings));
+            settings.put("TEST_DB_URL", "jdbc:mysql://127.0.0.1:3307/banking_db");
+            assertThrows(IllegalArgumentException.class,
+                    () -> LoginAuditTestDatabase.validateSettings(settings));
         }
-    }
-
-    @Test
-    void rejectsOtherSchemasGlobalRolesObjectGrantsAndGrantOption() {
-        for (String grant : new String[]{
-                "GRANT SELECT ON `banking_db`.* TO `banking_test_runner`@`localhost`",
-                "GRANT SELECT ON `bankingXtest`.* TO `banking_test_runner`@`localhost`",
-                "GRANT SELECT ON `banking\\_test_extra`.* TO `banking_test_runner`@`localhost`",
-                "GRANT SELECT ON *.* TO `banking_test_runner`@`localhost`",
-                "GRANT SELECT ON `banking_test`.`customers` TO `banking_test_runner`@`localhost`",
-                "GRANT SELECT (`customer_id`) ON `banking_test`.`customers` TO `banking_test_runner`@`localhost`",
-                "GRANT EXECUTE ON PROCEDURE `banking_test`.`outside_access` TO `banking_test_runner`@`localhost`",
-                "GRANT `reader`@`localhost` TO `banking_test_runner`@`localhost`",
-                "GRANT SELECT ON `banking\\_test`.* TO `banking_test_runner`@`localhost` WITH GRANT OPTION",
-                "GRANT SELECT ON `banking\\\\_test`.* TO `banking_test_runner`@`localhost`",
-                ""}) {
-            assertThrows(IllegalStateException.class,
-                    () -> LoginAuditTestDatabase.validateGrant(grant), grant);
+        for (String profile : new String[]{"", " ", "permissive", "STRICT_TRANS_TABLES",
+                "PERMISSIVE; SET GLOBAL sql_mode = ''"}) {
+            var settings = valid();
+            settings.put("LOGIN_AUDIT_IT_SQL_MODE_PROFILE", profile);
+            assertThrows(IllegalArgumentException.class,
+                    () -> LoginAuditTestDatabase.validateSettings(settings));
         }
-        assertThrows(IllegalStateException.class,
-                () -> LoginAuditTestDatabase.validateGrant(null));
     }
 
     @Test

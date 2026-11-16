@@ -135,4 +135,3 @@ public final class PasswordChangeService {
         if (value != null) Arrays.fill(value, '\0');
     }
 }
-

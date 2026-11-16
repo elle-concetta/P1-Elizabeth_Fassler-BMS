@@ -237,4 +237,3 @@ class PasswordChangeServiceTest {
             for (char character : value) assertEquals('\0', character);
     }
 }
-

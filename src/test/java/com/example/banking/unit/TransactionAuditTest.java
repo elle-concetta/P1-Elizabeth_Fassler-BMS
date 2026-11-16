@@ -213,7 +213,7 @@ class TransactionAuditTest {
                 .replaceAll("(?s)/\\*.*?\\*/", "")
                 .replaceAll("(?m)--[^\\r\\n]*", "");
         Matcher table = Pattern.compile(
-                "(?is)CREATE\\s+TABLE\\s+transaction_audit\\s*\\((.*?)\\)\\s*ENGINE\\s*=")
+                        "(?is)CREATE\\s+TABLE\\s+transaction_audit\\s*\\((.*?)\\)\\s*ENGINE\\s*=")
                 .matcher(sql);
         assertTrue(table.find());
         String definition = table.group(1);

@@ -9,10 +9,18 @@ public final class CliPresentation {
     public static String welcome() {
         String border = "+" + "-".repeat(WIDTH) + "+";
         String[] lines = {
-                "", "     /\\     ", "    /  \\    ", "   /____\\   ",
-                "   | || |   ", "   |_||_|   ", "",
-                "S E C U R E   B A N K I N G", "CLI EDITION", "",
-                "REGISTER  |  SIGN IN  |  VIEW YOUR PROFILE", ""
+                "",
+                "     /\\     ",
+                "    /  \\    ",
+                "   /____\\   ",
+                "   | || |   ",
+                "   |_||_|   ",
+                "",
+                "S E C U R E   B A N K I N G",
+                "CLI EDITION",
+                "",
+                "REGISTER  |  SIGN IN  |  VIEW YOUR PROFILE",
+                ""
         };
         StringBuilder banner = new StringBuilder(border);
         for (String line : lines) {

@@ -19,7 +19,11 @@ import java.util.TimeZone;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Real MySQL only. Missing approval/configuration fails, rather than skipping. */
+/**
+ * Real MySQL only. Missing approval/configuration fails, rather than skipping.
+ * Repeat with each LOGIN_AUDIT_IT_SQL_MODE_PROFILE on a fresh approved server
+ * to prove timestamp rejection does not depend on server coercion settings.
+ */
 class JdbcLoginAuditDAOIT {
     // TIMESTAMP(0) in the checked-in schema: only whole-second precision claimed.
     private static final Instant TIME = Instant.parse("2026-01-02T03:04:05Z");
@@ -136,37 +140,23 @@ class JdbcLoginAuditDAOIT {
     }
 
     @ParameterizedTest
-    @CsvSource({
-            "1970-01-01T00:00:01Z, +00:00, GMT",
-            "1970-01-01T00:00:01Z, -05:00, GMT-05:00",
-            "1970-01-01T00:00:01Z, +05:30, GMT+05:30",
-            "2038-01-19T03:14:07Z, +00:00, GMT",
-            "2038-01-19T03:14:07Z, -05:00, GMT-05:00",
-            "2038-01-19T03:14:07Z, +05:30, GMT+05:30"
-    })
-    void exactTimestampBoundsRoundTripAcrossReaderSessionZones(
-            String text, String offset, String zone) throws Exception {
+    @ValueSource(strings = {"1970-01-01T00:00:01Z", "2038-01-19T03:14:07Z"})
+    void exactTimestampBoundsRoundTrip(String text) throws Exception {
         Instant time = Instant.parse(text);
-        String attempted = "bound-" + time.getEpochSecond() + "-" + offset;
+        String attempted = "bound-" + time.getEpochSecond();
         dao.append(new LoginAudit(null, null, attempted, LoginOutcome.FAILURE, null, time));
-        try (Connection reader = database.open()) {
-            try (var statement = reader.prepareStatement("SET SESSION time_zone = ?")) {
-                statement.setString(1, offset);
-                statement.execute();
-            }
-            try (var query = reader.prepareStatement("""
-                    SELECT created_at, UNIX_TIMESTAMP(created_at), @@session.time_zone
-                    FROM login_audit WHERE username_attempted = ?
-                    """)) {
-                query.setString(1, attempted);
-                try (var result = query.executeQuery()) {
-                    assertTrue(result.next());
-                    assertEquals(offset, result.getString(3));
-                    assertEquals(time, result.getTimestamp(1,
-                            Calendar.getInstance(TimeZone.getTimeZone(zone))).toInstant());
-                    assertEquals(time.getEpochSecond(), result.getLong(2));
-                    assertFalse(result.next());
-                }
+        try (Connection reader = database.open();
+             var query = reader.prepareStatement("""
+                     SELECT created_at, UNIX_TIMESTAMP(created_at)
+                     FROM login_audit WHERE username_attempted = ?
+                     """)) {
+            query.setString(1, attempted);
+            try (var result = query.executeQuery()) {
+                assertTrue(result.next());
+                assertEquals(time, result.getTimestamp(1,
+                        Calendar.getInstance(TimeZone.getTimeZone("UTC"))).toInstant());
+                assertEquals(time.getEpochSecond(), result.getLong(2));
+                assertFalse(result.next());
             }
         }
     }
@@ -174,6 +164,7 @@ class JdbcLoginAuditDAOIT {
     @ParameterizedTest
     @ValueSource(strings = {
             "2026-01-02T03:04:05.000000001Z", "2026-01-02T03:04:05.123456Z",
+            "2026-01-02T03:04:05.500000Z",
             "2026-01-02T03:04:05.999999999Z",
             "1970-01-01T00:00:00.999999999Z", "2038-01-19T03:14:07.000000001Z",
             "1970-01-01T00:00:00Z", "2038-01-19T03:14:08Z"

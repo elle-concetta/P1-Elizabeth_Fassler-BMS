@@ -10,3 +10,4 @@ public class BankingException extends RuntimeException {
         super(message, cause);
     }
 }
+

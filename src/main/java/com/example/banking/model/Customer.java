@@ -18,3 +18,4 @@ public record Customer(long customerId, String customerCode, String firstName,
         return "Customer[id=" + customerId + ", status=" + status + "]";
     }
 }
+

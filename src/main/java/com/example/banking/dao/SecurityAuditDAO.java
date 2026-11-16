@@ -9,3 +9,4 @@ public interface SecurityAuditDAO {
     void append(Connection connection, SecurityAuditEvent event) throws SQLException;
 }
 
+

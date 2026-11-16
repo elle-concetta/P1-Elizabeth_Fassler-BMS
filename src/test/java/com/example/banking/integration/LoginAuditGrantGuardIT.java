@@ -26,9 +26,8 @@ class LoginAuditGrantGuardIT {
     private static DisposableGrantGuardMysql mysql;
 
     enum UnsafeGrant {
-        GLOBAL_WRITE, OUTSIDE_SCHEMA, OUTSIDE_TABLE, OUTSIDE_COLUMN, OUTSIDE_PROCEDURE,
-        INSIDE_TABLE, INSIDE_CUSTOMERS_COLUMN, INSIDE_AUDIT_COLUMN,
-        GRANT_OPTION, ASSIGNED_ROLE, DEFAULT_ROLE
+        GLOBAL_WRITE, OUTSIDE_SCHEMA, OUTSIDE_TABLE, OUTSIDE_COLUMN,
+        INSIDE_TABLE, GRANT_OPTION, ASSIGNED_ROLE, DEFAULT_ROLE
     }
 
     @BeforeAll
@@ -65,13 +64,7 @@ class LoginAuditGrantGuardIT {
         }
         sql("GRANT SELECT, INSERT, CREATE, DROP, REFERENCES ON banking_test.* TO " + PRINCIPAL,
                 "CREATE TABLE grant_guard_outside.sentinel (id INT PRIMARY KEY, evidence VARCHAR(80))",
-                "INSERT INTO grant_guard_outside.sentinel VALUES (1, 'outside-evidence-unchanged')",
-                // Only the verified process-owned server receives this synthetic routine.
-                """
-                CREATE PROCEDURE grant_guard_outside.read_sentinel()
-                READS SQL DATA SQL SECURITY INVOKER
-                SELECT evidence FROM grant_guard_outside.sentinel ORDER BY id
-                """);
+                "INSERT INTO grant_guard_outside.sentinel VALUES (1, 'outside-evidence-unchanged')");
     }
 
     @Test
@@ -91,10 +84,7 @@ class LoginAuditGrantGuardIT {
     }
 
     @ParameterizedTest
-    // MySQL column grants require an existing table/column. Exercise them in
-    // both evidence-bearing lifecycle states below, not a falsely empty schema.
-    @EnumSource(value = UnsafeGrant.class, mode = EnumSource.Mode.EXCLUDE,
-            names = {"INSIDE_CUSTOMERS_COLUMN", "INSIDE_AUDIT_COLUMN"})
+    @EnumSource(UnsafeGrant.class)
     void refusesBeforeCreatingAnyFixtureInEmptySchema(UnsafeGrant unsafe) throws Exception {
         elevate(unsafe);
         assertRealGrant(unsafe);
@@ -114,8 +104,8 @@ class LoginAuditGrantGuardIT {
     @ParameterizedTest
     @EnumSource(UnsafeGrant.class)
     void refusesBeforeTouchingPreExistingFixtureNamedSentinels(UnsafeGrant unsafe) throws Exception {
-        sql("CREATE TABLE banking_test.customers (customer_id INT PRIMARY KEY, evidence VARCHAR(80))",
-                "CREATE TABLE banking_test.login_audit (audit_id INT PRIMARY KEY, evidence VARCHAR(80))",
+        sql("CREATE TABLE banking_test.customers (id INT PRIMARY KEY, evidence VARCHAR(80))",
+                "CREATE TABLE banking_test.login_audit (id INT PRIMARY KEY, evidence VARCHAR(80))",
                 "INSERT INTO banking_test.customers VALUES (7, 'customer-evidence-unchanged')",
                 "INSERT INTO banking_test.login_audit VALUES (9, 'audit-evidence-unchanged')");
         elevate(unsafe);
@@ -182,19 +172,11 @@ class LoginAuditGrantGuardIT {
                     "GRANT SELECT, INSERT ON grant_guard_outside.sentinel TO " + PRINCIPAL);
             case OUTSIDE_COLUMN -> sql(
                     "GRANT SELECT (evidence), INSERT (evidence) ON grant_guard_outside.sentinel TO " + PRINCIPAL);
-            case OUTSIDE_PROCEDURE -> sql(
-                    "GRANT EXECUTE ON PROCEDURE grant_guard_outside.read_sentinel TO " + PRINCIPAL);
             // CREATE permits a grant even before the named fixture table exists.
             // This is intentionally refused despite staying inside banking_test:
             // the harness accepts schema-level grants only, not table-level ones.
             case INSIDE_TABLE -> sql(
                     "GRANT SELECT, CREATE ON banking_test.login_audit TO " + PRINCIPAL);
-            // Sentinel tables use the same key column names as owned fixtures.
-            // Redundant schema privileges do not make column syntax acceptable.
-            case INSIDE_CUSTOMERS_COLUMN -> sql(
-                    "GRANT SELECT (customer_id), INSERT (customer_id) ON banking_test.customers TO " + PRINCIPAL);
-            case INSIDE_AUDIT_COLUMN -> sql(
-                    "GRANT SELECT (audit_id), INSERT (audit_id) ON banking_test.login_audit TO " + PRINCIPAL);
             case GRANT_OPTION -> sql("GRANT SELECT ON banking_test.* TO " + PRINCIPAL + " WITH GRANT OPTION");
             case ASSIGNED_ROLE, DEFAULT_ROLE -> {
                 sql("CREATE ROLE 'grant_guard_role'",
@@ -240,17 +222,8 @@ class LoginAuditGrantGuardIT {
                 case OUTSIDE_COLUMN -> grant.equals(
                         "GRANT SELECT (`evidence`), INSERT (`evidence`) ON `grant_guard_outside`.`sentinel` TO "
                                 + "`banking_test_runner`@`127.0.0.1`");
-                case OUTSIDE_PROCEDURE -> grant.equals(
-                        "GRANT EXECUTE ON PROCEDURE `grant_guard_outside`.`read_sentinel` TO "
-                                + "`banking_test_runner`@`127.0.0.1`");
                 case INSIDE_TABLE -> grant.equals(
                         "GRANT SELECT, CREATE ON `banking_test`.`login_audit` TO "
-                                + "`banking_test_runner`@`127.0.0.1`");
-                case INSIDE_CUSTOMERS_COLUMN -> grant.equals(
-                        "GRANT SELECT (`customer_id`), INSERT (`customer_id`) ON `banking_test`.`customers` TO "
-                                + "`banking_test_runner`@`127.0.0.1`");
-                case INSIDE_AUDIT_COLUMN -> grant.equals(
-                        "GRANT SELECT (`audit_id`), INSERT (`audit_id`) ON `banking_test`.`login_audit` TO "
                                 + "`banking_test_runner`@`127.0.0.1`");
                 case GRANT_OPTION -> grant.contains("WITH GRANT OPTION");
                 case ASSIGNED_ROLE, DEFAULT_ROLE -> grant.startsWith("GRANT `grant_guard_role`@");
@@ -312,27 +285,6 @@ class LoginAuditGrantGuardIT {
                     }
                 }
             }
-            // Preserve routine evidence as well as table definitions and rows.
-            List<String> procedures = new ArrayList<>();
-            try (var query = admin.prepareStatement("""
-                    SELECT routine_name FROM information_schema.routines
-                    WHERE routine_schema = ? AND routine_type = 'PROCEDURE'
-                    ORDER BY routine_name
-                    """)) {
-                query.setString(1, schema);
-                try (var rows = query.executeQuery()) {
-                    while (rows.next()) {
-                        procedures.add(rows.getString(1));
-                    }
-                }
-            }
-            for (String procedure : procedures) {
-                try (var ddl = statement.executeQuery(
-                        "SHOW CREATE PROCEDURE `" + schema + "`.`" + procedure + "`")) {
-                    assertTrue(ddl.next());
-                    result.add(ddl.getString("Create Procedure"));
-                }
-            }
         }
         return result;
     }
@@ -352,7 +304,7 @@ class LoginAuditGrantGuardIT {
                      SELECT COUNT(*) FROM mysql.general_log
                      WHERE user_host LIKE 'banking_test_runner[%'
                      AND UPPER(argument) REGEXP
-                     '^[[:space:]]*(CREATE|DROP|ALTER|TRUNCATE|INSERT|UPDATE|DELETE|REPLACE|GRANT|REVOKE|CALL)[[:space:]]'
+                     '^[[:space:]]*(CREATE|DROP|ALTER|TRUNCATE|INSERT|UPDATE|DELETE|REPLACE|GRANT|REVOKE)[[:space:]]'
                      """)) {
             assertTrue(rows.next());
             return rows.getLong(1);

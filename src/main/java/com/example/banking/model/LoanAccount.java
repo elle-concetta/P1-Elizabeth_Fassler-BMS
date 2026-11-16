@@ -10,3 +10,4 @@ public final class LoanAccount extends Account {
         super(id, owner, number, AccountType.LOAN, balance, rate, minimum, opened, status);
     }
 }
+

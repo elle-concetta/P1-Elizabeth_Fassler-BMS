@@ -15,7 +15,7 @@ public final class LoginMenu {
     public void run() {
         String username = input.field("Username", 512);
         char[] raw = input.password("Password (hidden): ");
-        auth.login(username, raw);
+        auth.login(username, raw); // service clears the caller's password buffer on every path
         input.println("Login successful.");
         new CustomerMenu(auth, input).run();
     }

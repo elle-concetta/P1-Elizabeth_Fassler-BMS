@@ -7,3 +7,4 @@ public final class AuditUnavailableException extends BankingException {
                 + "unsaved evidence is retained only in this running process.");
     }
 }
+

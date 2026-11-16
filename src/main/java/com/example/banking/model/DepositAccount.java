@@ -10,3 +10,4 @@ public final class DepositAccount extends Account {
         super(id, owner, number, AccountType.DEPOSIT, balance, rate, minimum, opened, status);
     }
 }
+

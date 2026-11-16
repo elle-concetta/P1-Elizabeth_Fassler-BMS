@@ -13,12 +13,15 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 
-/** One-shot deposits. Financial-attempt evidence is delivered AFTER primary cleanup. */
+/** One-shot deposits/withdrawals; independent evidence delivery AFTER primary cleanup. */
 public final class TransactionService {
     public enum MoneyState { UNCHANGED, COMMITTED, UNCONFIRMED }
     public enum AuditState { NOT_ATTEMPTED, SAVED, REJECTED_NO_WRITE, SAVE_UNCERTAIN }
 
-    /** Exact evidence retained only in memory until manual reconciliation; never log it. */
+    /**
+     * Exact evidence retained only in memory; never log it. The existing record name
+     * is retained for source compatibility, but its eventType identifies either operation.
+     */
     public record PendingDeposit(TransactionAudit evidence, MoneyState moneyState, AuditState auditState) {
         public PendingDeposit {
             Objects.requireNonNull(evidence);
@@ -58,25 +61,35 @@ public final class TransactionService {
         this.clock = Objects.requireNonNull(clock);
         this.maximum = Objects.requireNonNull(maximum);
         if (!maximum.isPositive() || timeout <= 0)
-            throw new IllegalArgumentException("Positive deposit limit and query timeout are required.");
+            throw new IllegalArgumentException("Positive transaction limit and query timeout are required.");
         this.timeout = timeout;
     }
 
     public Optional<PendingDeposit> pending() { return Optional.ofNullable(pending); }
 
-    public DepositException pendingFailure() {
-        if (pending == null) throw new IllegalStateException("No pending deposit.");
+    public FinancialOperationException pendingFailure() {
+        if (pending == null) throw new IllegalStateException("No pending financial operation.");
+        TransactionType type = pending.evidence().eventType();
+        String operation = type == TransactionType.WITHDRAWAL ? "Withdrawal" : "Deposit";
         String message = switch (pending.moneyState()) {
-            case COMMITTED -> "Deposit committed, but audit storage is not confirmed.";
+            case COMMITTED -> operation + " committed, but audit storage is not confirmed.";
             case UNCHANGED -> "Balance is unchanged, but audit storage is not confirmed.";
-            case UNCONFIRMED -> "Deposit outcome is unconfirmed.";
+            case UNCONFIRMED -> operation + " outcome is unconfirmed.";
         };
-        return new DepositException(message + " Stop; do not repeat the deposit or restart. "
-                + "Keep this process open for manual reconciliation.",
+        return failure(type, message + " Stop; do not repeat the operation or restart. "
+                        + "Keep this process open for manual reconciliation.",
                 pending.evidence().referenceNumber().orElseThrow());
     }
 
     public BankTransaction deposit(long accountId, String suppliedAmount) {
+        return operate(TransactionType.DEPOSIT, accountId, suppliedAmount);
+    }
+
+    public BankTransaction withdraw(long accountId, String suppliedAmount) {
+        return operate(TransactionType.WITHDRAWAL, accountId, suppliedAmount);
+    }
+
+    private BankTransaction operate(TransactionType type, long accountId, String suppliedAmount) {
         // The callback rechecks session expiry and pending evidence after form input.
         long owner = identity.get().customerId();
         if (pending != null) throw pendingFailure();
@@ -84,7 +97,7 @@ public final class TransactionService {
         Instant time = Objects.requireNonNull(clock.instant());
         Execution result;
         if (!TransactionValidator.supportedTime(time)) {
-            result = rejected("UNSUPPORTED_TIMESTAMP", "Deposit clock is outside supported storage precision/range.");
+            result = rejected("UNSUPPORTED_TIMESTAMP", "Transaction clock is outside supported storage precision/range.");
         } else if (accountId <= 0) {
             result = rejected("INVALID_ACCOUNT_ID", "Choose a positive account ID.");
         } else {
@@ -97,10 +110,10 @@ public final class TransactionService {
             result = amount == null
                     ? rejected("INVALID_AMOUNT", "Amount must be positive, within the configured limit, "
                     + "and use at most two decimal places.")
-                    : execute(owner, accountId, amount, reference, time);
+                    : execute(type, owner, accountId, amount, reference, time);
         }
 
-        TransactionAudit evidence = new TransactionAudit(null, owner, reference, TransactionType.DEPOSIT,
+        TransactionAudit evidence = new TransactionAudit(null, owner, reference, type,
                 result.outcome(), result.failureCode(), time);
         pending = new PendingDeposit(evidence, result.money(), AuditState.NOT_ATTEMPTED);
         try {
@@ -115,10 +128,11 @@ public final class TransactionService {
         }
         if (pending != null) throw pendingFailure();
         if (result.money() == MoneyState.COMMITTED) return result.receipt();
-        throw new DepositException(result.message() + " No money was changed.", reference);
+        throw failure(type, result.message() + " No money was changed.", reference);
     }
 
-    private Execution execute(long owner, long id, Money amount, TransactionReference reference, Instant time) {
+    private Execution execute(TransactionType type, long owner, long id, Money amount,
+                              TransactionReference reference, Instant time) {
         Connection connection = null;
         boolean commitAttempted = false;
         Execution result = failed("DATABASE_UNAVAILABLE", MoneyState.UNCHANGED);
@@ -128,28 +142,37 @@ public final class TransactionService {
             connection.setAutoCommit(false);
             try (var statement = connection.createStatement()) {
                 statement.setQueryTimeout(timeout);
-                // This deposit-owned connection has an explicit UTC timestamp contract.
+                // This financial-operation-owned connection has an explicit UTC contract.
                 statement.execute("SET SESSION time_zone = '+00:00'");
                 statement.execute("SET SESSION innodb_lock_wait_timeout = " + timeout);
             }
             Customer customer = customers.findProfile(connection, owner, true).orElse(null);
             if (customer == null || customer.customerId() != owner || customer.status() != CustomerStatus.ACTIVE)
-                throw new Rejected("CUSTOMER_UNAVAILABLE", "Customer is not available for deposits.");
+                throw new Rejected("CUSTOMER_UNAVAILABLE", "Customer is not available for money operations.");
             Account account = accounts.lockOwned(connection, owner, id).orElse(null);
             if (account == null || account.accountId() != id || account.customerId() != owner)
                 throw new Rejected("ACCOUNT_NOT_FOUND", "Account not found.");
             if (account.status() != AccountStatus.ACTIVE)
                 throw new Rejected("ACCOUNT_UNAVAILABLE", "Account is not active.");
             if (account.type() != AccountType.SAVINGS && account.type() != AccountType.CURRENT)
-                throw new Rejected("ACCOUNT_TYPE_NOT_ELIGIBLE", "Deposits require a Savings or Current account.");
+                throw new Rejected("ACCOUNT_TYPE_NOT_ELIGIBLE", "This operation requires a Savings or Current account.");
+            if (type == TransactionType.WITHDRAWAL) {
+                if (account.balance().compareTo(amount) < 0)
+                    throw new Rejected("INSUFFICIENT_FUNDS", "Insufficient funds.");
+                if (account.balance().subtract(amount).compareTo(account.minimumBalance()) < 0)
+                    throw new Rejected("MINIMUM_BALANCE", "Withdrawal would breach the account's minimum balance.");
+            }
             BankTransaction receipt;
             try {
-                receipt = BankTransaction.deposit(reference, account, amount, time);
+                receipt = type == TransactionType.DEPOSIT
+                        ? BankTransaction.deposit(reference, account, amount, time)
+                        : BankTransaction.withdrawal(reference, account, amount, time);
             } catch (IllegalArgumentException overflow) {
                 throw new Rejected("BALANCE_OVERFLOW", "The resulting balance exceeds supported storage.");
             }
             accounts.updateBalance(connection, owner, id, receipt.balanceBefore(), receipt.balanceAfter());
-            ledger.insertDeposit(connection, receipt);
+            if (type == TransactionType.DEPOSIT) ledger.insertDeposit(connection, receipt);
+            else ledger.insertWithdrawal(connection, receipt);
             Account after = accounts.findOwned(connection, owner, id).orElse(null);
             if (after == null || after.customerId() != owner || after.accountId() != id
                     || !after.number().equals(account.number()) || after.type() != account.type()
@@ -194,7 +217,12 @@ public final class TransactionService {
 
     private static Execution failed(String code, MoneyState state) {
         return new Execution(null, state, state == MoneyState.UNCHANGED && !code.equals("DATABASE_UNAVAILABLE")
-                ? AuditOutcome.ROLLED_BACK : AuditOutcome.FAILED, code, "Deposit could not be completed.");
+                ? AuditOutcome.ROLLED_BACK : AuditOutcome.FAILED, code, "Money operation could not be completed.");
+    }
+
+    private static FinancialOperationException failure(TransactionType type, String message, TransactionReference reference) {
+        return type == TransactionType.WITHDRAWAL
+                ? new WithdrawalException(message, reference) : new DepositException(message, reference);
     }
 
     private static final class Rejected extends RuntimeException {

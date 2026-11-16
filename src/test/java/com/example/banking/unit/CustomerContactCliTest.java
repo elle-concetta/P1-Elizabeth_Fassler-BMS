@@ -94,4 +94,3 @@ class CustomerContactCliTest {
                 address, email, phone, "tester", CustomerStatus.ACTIVE);
     }
 }
-

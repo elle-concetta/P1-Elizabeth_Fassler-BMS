@@ -270,6 +270,11 @@ public final class AuthService {
         return transactions.deposit(accountId, amount);
     }
 
+    public BankTransaction withdraw(long accountId, String amount) {
+        return transactions.withdraw(accountId, amount);
+    }
+
+    /** Legacy name: the single pending slot guards both deposits and withdrawals. */
     public Optional<TransactionService.PendingDeposit> pendingDeposit() { return transactions.pending(); }
 
     public Customer currentCustomer() {
