@@ -179,7 +179,7 @@ Choose the driver using the **server version**, not Workbench or Shell versions.
 
 Passwords must be hashed, not reversibly encrypted. Mockito connection tests do not contact MySQL; real database integration tests are also required to prove SQL constraints, transactions, rollback, and locking.
 
-## Step 1 Maven and first test walkthrough
+## Maven and First Test Walkthrough
 
 MySQL does not need to be running for this first setup test.
 
