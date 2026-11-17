@@ -315,3 +315,10 @@ After adding the test, expect a nonzero executed test count, zero failures/error
 
 In IntelliJ's Maven tool window, **Lifecycle → test** runs the tests and **Lifecycle → package** packages the application. The `target` directory is generated automatically; do not create it manually.
 
+## Database Configuration
+Set these environment variables for the application:
+
+```DB_URL=jdbc:mysql://127.0.0.1:3306/banking_db
+DB_USERNAME=<your application database user>
+DB_PASSWORD=<your private password>
+```
