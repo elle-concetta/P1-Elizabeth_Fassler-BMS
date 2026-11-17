@@ -3,16 +3,48 @@ A banking application being built with **Java 27, Maven, JDBC, and MySQL 8.4.x**
 
 The goal is to let customers register, sign in, manage accounts, and carry out banking transactions while learning how to handle validation, security, and database transactions correctly.
 
-## Demo Presentation# Secure Banking CLI
-A banking application being built with **Java 27, Maven, JDBC, and MySQL 8.4.x**.
+The Secure Banking CLI is designed as a menu-driven Java application where customers manage their own accounts through a terminal. The full design includes these features:
 
-The goal is to let customers register, sign in, manage accounts, and carry out banking transactions while learning how to handle validation, security, and database transactions correctly.
+## Customer and login features
+- Register with validated customer details and unique username and email.
+- Log in with a password stored as a salted bcrypt hash.
+- Temporarily lock an account after repeated failed login attempts, then allow recovery after the lock expires.
+- View and update permitted contact details.
+- Change a password after verifying the current password.
+- Use a customer session that expires after inactivity, and log out explicitly.
+
+## Accounts
+A customer can own multiple accounts of four types:
+- Savings: deposits, withdrawals, and transfers; the baseline minimum balance is zero.
+- Current: similar operations to Savings; the baseline overdraft limit is zero.
+- Deposit: open with funds from an eligible Savings or Current account; funds are locked until maturity, then the principal can be settled into an eligible account. No interest calculation or early release is included in the baseline.
+- Loan: records principal owed, but does not disburse money. Repay from an eligible Savings or Current account; overpayment is refused, and the Loan closes when paid off.
+
+Account listings and private account details are limited to the owning customer.
+
+## Banking Operations
+- Check balances for owned accounts.
+- Deposit to eligible, active Savings and Current accounts.
+- Withdraw from eligible accounts when funds are sufficient.
+- Transfer between eligible accounts. The source must belong to the logged-in customer; the destination may belong to another customer, whose private details remain hidden.
+- Open and mature term Deposits, then settle their principal.
+- Repay Loans from eligible accounts.
+- Review transaction history with date and transaction-type filters and pagination.
+
+Transfers and other multi-account operations are intended to be atomic: all balance and ledger changes succeed together or roll back together. The design also calls for account locking and checks for ownership, account status, and available funds during the transaction.
+
+## Security, Records, and Reliability
+- Validate inputs, use prepared SQL statements, and keep database credentials outside source control.
+- Store money as BigDecimal in MySQL DECIMAL(19,2) fields; reject invalid precision and nonpositive transaction amounts.
+- Record login and financial outcomes in append-only audit records.
+- Keep audit logging separate from the main money transaction so a rejected attempt can still be recorded.
+- Mask account numbers in logs, avoid logging passwords or hashes, and show safe messages rather than SQL errors or stack traces.
+- Use database constraints, transaction rollback, and guarded database integration tests to protect data integrity.
 
 ## Demo Presentation
 [![Secure Banking CLI Presentation](https://github.com/elle-concetta/P1-Elizabeth_Fassler-BMS/blob/fd60c5aedd854a1dfd0292acbcb9493784f24840/Secure%20Banking%20CLI.png)](https://www.youtube.com/watch?v=bZWHj967qDo)
 
 ## Structure
-
 ```text
 (project root)
 ├── .idea/
