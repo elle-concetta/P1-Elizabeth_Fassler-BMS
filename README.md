@@ -5,7 +5,7 @@ The goal is to let customers register, sign in, manage accounts, and carry out b
 
 The Secure Banking CLI is designed as a menu-driven Java application where customers manage their own accounts through a terminal. The full design includes these features:
 
-## Customer and login features
+## Customer and Login Features
 - Register with validated customer details and unique username and email.
 - Log in with a password stored as a salted bcrypt hash.
 - Temporarily lock an account after repeated failed login attempts, then allow recovery after the lock expires.
@@ -165,7 +165,6 @@ Transfers and other multi-account operations are intended to be atomic: all bala
 ```
 
 ## Build and Run
-
 Use JDK 27 and Maven 3.9+ for the updated local setup. Verify the runtime with`mvn -version`: a compiler release property does not select Maven's Java runtime. The checked-in POM now targets Java 27 and includes the Mockito dependencies andexplicit test agent  used in the walkthrough. To test and build the JAR, run:
 
 ```bash
@@ -177,7 +176,6 @@ java -jar target/banking-cli.jar
 The repository includes JAR packaging, 28 configuration tests, and nine connection-factory tests. The full commands above have not been verified here on Java 27. Packaging and launching the local project as an executable JAR still need to be checked.
 
 ## Required Libraries
-
 | Library | Purpose | Current status |
 |---|---|---|
 | MySQL Connector/J | JDBC connections and MySQL operations | Declared in `pom.xml` |
@@ -190,7 +188,6 @@ The repository includes JAR packaging, 28 configuration tests, and nine connecti
 
 
 ### Dependency Coordinates and Versions
-
 The versions below match the local setup guidance and are now declared in the repository's POM. This does not mean the full dependency tree has been built or security-checked here. The project guidelines name the required libraries but do not pin their versions. Keep checking dependency security warnings when updating the build.
 
 | Maven coordinate | Version | Scope |
@@ -212,11 +209,9 @@ Choose the driver using the **server version**, not Workbench or Shell versions.
 Passwords must be hashed, not reversibly encrypted. Mockito connection tests do not contact MySQL; real database integration tests are also required to prove SQL constraints, transactions, rollback, and locking.
 
 ## Maven and First Test Walkthrough
-
 MySQL does not need to be running for this first setup test.
 
 ### 1. Check Java and Maven
-
 Run from the folder containing `pom.xml`:
 
 ```bash
@@ -229,7 +224,6 @@ Use JDK 27 and Maven 3.9+. Confirm that Maven also reports Java 27. In IntelliJ,
 If the terminal cannot find `mvn`, the Maven tool window can still run goals with bundled Maven. Downloading a JDK inside IntelliJ does not necessarily put `java`on the terminal's PATH; configure the local JDK/PATH if using terminal commands.
 
 ### 2. Add Mockito Test Dependencies
-
 Keep these properties in the local POM:
 
 ```xml
@@ -288,7 +282,6 @@ In the existing `<build><plugins>` section, add the dependency plugin and update
 This explicitly loads Mockito's agent for Maven tests. The older Mockito/Byte Buddy setup failed under Java 27 even when compilation targeted Java 17. Experimental flags are not needed for the reported passing updated setup.
 
 ### 3. Create the first JUnit/Mockito test
-
 Create this Java file:
 
 ```text
@@ -335,8 +328,7 @@ class ConnectionMockTest {
 
 `@Mock` creates a simulated JDBC connection, `when` defines its response,`assertTrue` checks the result, and `verify` checks the call. The extension initializes the mock. This test confirms the JUnit/Mockito setup only; it does not yet test application behavior or a real database connection.
 
-### 4. Run tests, package, and launch
-
+### 4. Run Tests, Package, and Launch
 ```bash
 mvn test
 mvn clean package
